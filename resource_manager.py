@@ -11,7 +11,7 @@ load_dotenv()
 email = os.getenv('EMAIL')
 
 # サービスアカウントキーファイルのパスを指定する
-SERVICE_ACCOUNT_FILE = '/resource_manager/creditials.json'
+SERVICE_ACCOUNT_FILE = '/resource_manager/.creditials.json'
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
