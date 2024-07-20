@@ -5,6 +5,9 @@ from datetime import datetime, timedelta, timezone
 import pytz
 from dotenv import load_dotenv
 import os
+import json
+
+DATA_FILE = 'selected_period.json'
 
 load_dotenv()
 
@@ -24,6 +27,33 @@ service = build('calendar', 'v3', credentials=credentials)
 # 特定の曜日を除外するための関数
 def is_excluded_weekday(date):
     return date.weekday() in [5, 6]  # 土曜日(5)と日曜日(6)を除外
+
+
+
+def save_selected_period(start_date, end_date):
+    period_data = {
+        "start_date": start_date.strftime("%Y-%m-%d"),
+        "end_date": end_date.strftime("%Y-%m-%d")
+    }
+    with open("selected_period.json", "w") as f:
+        json.dump(period_data, f)
+
+def load_selected_period():
+    with open("selected_period.json", "r") as f:
+        period_data = json.load(f)
+        japan_tz = pytz.timezone('Asia/Tokyo')
+        start_date = datetime.strptime(period_data["start_date"], "%Y-%m-%d")
+        end_date = datetime.strptime(period_data["end_date"], "%Y-%m-%d")
+        start_time = japan_tz.localize(start_date)
+        end_time = japan_tz.localize(end_date)
+        return start_time, end_time
+
+def process_period_data():
+    start_time, end_time = load_selected_period()
+    print(f"Start Time: {start_time}")
+    print(f"End Time: {end_time}")
+
+    
 
 def get_minutes_set(start, end):
     """開始時間と終了時間の間の時間を分単位でセットとして返す"""

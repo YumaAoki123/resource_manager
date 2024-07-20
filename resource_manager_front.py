@@ -1,8 +1,10 @@
 import tkinter as tk
-from tkinter import messagebox, simpledialog
+from tkinter import messagebox, simpledialog, ttk
 from tkcalendar import DateEntry
-from tkinter import ttk
+import customtkinter as ctk
 import json
+from resource_manager import save_selected_period, process_period_data  # バックエンドの関数をインポート
+
 
 # タスクを保存するためのリスト
 tasks = []
@@ -28,7 +30,7 @@ def add_task():
         task_duration = simpledialog.askinteger("Task Duration", "Enter task duration in minutes:")
         tasks.append({"name": task_name, "duration": task_duration})
         update_task_listbox()
-        task_entry.delete(0, tk.END)
+        task_entry.delete(0, ctk.END)
         save_tasks()
     else:
         messagebox.showwarning("Warning", "Task name cannot be empty")
@@ -45,77 +47,87 @@ def delete_task():
         del tasks[index]
     save_tasks()
 
-# 空いている時間を検索する関数
-def find_free_time():
-    start_date = cal_start.get_date()
-    end_date = cal_end.get_date()
-
-    if not start_date or not end_date:
-        messagebox.showwarning("Warning", "Please select both start and end dates")
-        return
-
-    total_time = (end_date - start_date).total_seconds() / 60  # minutes
-    occupied_time = sum(task['duration'] for task in tasks)
-    free_time = total_time - occupied_time
-
-    result_label.config(text=f"Free time: {free_time} minutes")
-
 # タスクリストボックスを更新する関数
 def update_task_listbox():
-    task_listbox.delete(0, tk.END)
+    task_listbox.delete(0, ctk.END)
     for task in tasks:
-        task_listbox.insert(tk.END, f"{task['name']} - {task['duration']} min")
+        task_listbox.insert(ctk.END, f"{task['name']} - {task['duration']} min")
+
+
+# 選択した期間を取得して保存する関数
+def on_save_selected_period():
+    start_date = cal_start.get_date()
+    end_date = cal_end.get_date()
+    save_selected_period(start_date, end_date)
+    print(f"Selected Start Date: {start_date}")
+    print(f"Selected End Date: {end_date}")
+    # バックエンドの関数を呼び出して期間を処理
+    process_period_data()
+
 
 # GUIのセットアップ
-root = tk.Tk()
-root.title("Task Manager")
-
-# ウィンドウのサイズを設定 (幅x高さ)
-root.geometry("900x600")
+app = ctk.CTk()
+app.title("resource_manager")
+app.geometry("900x600")
 
 # Notebook（タブ）ウィジェットの作成
-notebook = ttk.Notebook(root)
-notebook.pack(pady=10, expand=True)
+notebook = ttk.Notebook(app)
+notebook.grid(row=0, column=0, sticky="nsew")
+
+# ウィンドウの列と行の比率を設定
+app.grid_columnconfigure(0, weight=1)
+app.grid_rowconfigure(0, weight=1)
 
 # タスク管理タブ
-task_management_frame = ttk.Frame(notebook)
-notebook.add(task_management_frame, text="Task Management")
+task_management_frame = ctk.CTkFrame(notebook)
+notebook.add(task_management_frame, text="リソース計算")
+
+# グリッドレイアウト設定
+task_management_frame.grid_columnconfigure(0, weight=1)
+task_management_frame.grid_columnconfigure(1, weight=2)
+task_management_frame.grid_rowconfigure(4, weight=1)
 
 # 開始日時と終了日時の入力欄
-cal_start_label = tk.Label(task_management_frame, text="Select Start Date:")
-cal_start_label.pack(pady=5)
+cal_start_label = ctk.CTkLabel(task_management_frame, text="Select Start Date:")
+cal_start_label.grid(row=0, column=0, padx=10, pady=5, sticky="w")
+
 cal_start = DateEntry(task_management_frame, selectmode='day', year=2024, month=7, day=1, width=12, background='darkblue', foreground='white', borderwidth=2)
-cal_start.pack(pady=5)
+cal_start.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
 
-cal_end_label = tk.Label(task_management_frame, text="Select End Date:")
-cal_end_label.pack(pady=5)
+cal_end_label = ctk.CTkLabel(task_management_frame, text="Select End Date:")
+cal_end_label.grid(row=1, column=0, padx=10, pady=5, sticky="w")
+
 cal_end = DateEntry(task_management_frame, selectmode='day', year=2024, month=7, day=1, width=12, background='darkblue', foreground='white', borderwidth=2)
-cal_end.pack(pady=5)
+cal_end.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
 
-search_button = tk.Button(task_management_frame, text="Find Free Time", command=find_free_time)
-search_button.pack(pady=5)
+search_button = ctk.CTkButton(task_management_frame, text="Save Selected Period", command=on_save_selected_period)
+search_button.grid(row=2, column=0, columnspan=2, pady=5, sticky="ew")
 
-result_label = tk.Label(task_management_frame, text="Free time: ")
-result_label.pack(pady=10)
+result_label = ctk.CTkLabel(task_management_frame, text="Free time: ")
+result_label.grid(row=3, column=0, columnspan=2, pady=10, sticky="ew")
 
 # タスク入力欄と追加ボタン
-task_entry = tk.Entry(task_management_frame, width=50)
-task_entry.pack(pady=10)
-add_button = tk.Button(task_management_frame, text="Add Task", command=add_task)
-add_button.pack(pady=5)
+task_entry = ctk.CTkEntry(task_management_frame, width=50)
+task_entry.grid(row=4, column=0, padx=10, pady=5, sticky="w")
+add_button = ctk.CTkButton(task_management_frame, text="Add Task", command=add_task)
+add_button.grid(row=5, column=0, padx=10, pady=5, sticky="w")
 
 # タスク一覧タブ
-task_list_frame = ttk.Frame(notebook)
-notebook.add(task_list_frame, text="Task List")
+task_list_frame = ctk.CTkFrame(notebook)
+notebook.add(task_list_frame, text="タスク一覧")
 
-task_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)
-task_listbox.pack(pady=10)
+task_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)  # ここを修正
+task_listbox.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
-delete_button = tk.Button(task_list_frame, text="Delete Task", command=delete_task)
-delete_button.pack(pady=5)
+delete_button = ctk.CTkButton(task_list_frame, text="Delete Task", command=delete_task)
+delete_button.grid(row=1, column=0, pady=5, sticky="ew")
+
+# タスク管理タブ
+user_information_frame = ctk.CTkFrame(notebook)
+notebook.add(user_information_frame, text="ユーザ情報")
 
 # タスクデータをロードして表示
 load_tasks()
 update_task_listbox()
 
-root.mainloop()
+app.mainloop()
