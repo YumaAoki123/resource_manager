@@ -7,8 +7,6 @@ from dotenv import load_dotenv
 import os
 import json
 
-DATA_FILE = 'selected_period.json'
-
 load_dotenv()
 
 email = os.getenv('EMAIL')
@@ -47,14 +45,8 @@ def load_selected_period():
         start_time = japan_tz.localize(start_date)
         end_time = japan_tz.localize(end_date)
         return start_time, end_time
-
-def process_period_data():
-    start_time, end_time = load_selected_period()
-    print(f"Start Time: {start_time}")
-    print(f"End Time: {end_time}")
-
     
-
+    
 def get_minutes_set(start, end):
     """開始時間と終了時間の間の時間を分単位でセットとして返す"""
     current = start
@@ -64,13 +56,11 @@ def get_minutes_set(start, end):
         current += timedelta(minutes=1)
     return minutes_set
 
-try:
-    # 日本のタイムゾーンを設定
-    japan_tz = pytz.timezone('Asia/Tokyo')
 
-    # 2024年6月1日の開始と終了を設定（日本時間）
-    start_time = japan_tz.localize(datetime(2024, 7, 12, 0, 0, 0))
-    end_time = japan_tz.localize(datetime(2024, 7, 16, 0, 0, 0))
+def process_period_data():
+    start_time, end_time = load_selected_period()
+    print(f"Start Time: {start_time}")
+    print(f"End Time: {end_time}")
 
     delta = end_time - start_time
     days_count = delta.days
@@ -141,6 +131,11 @@ try:
         print(f'2024年6月1日のその他のイベント(食事など)合計は {sum_others} 時間です。')
         print(f'2024年6月1日の空き時間の合計は {free_hours} 時間です。')
         print(f'指定された期間の合計時間は {total_hours} 時間です。')
+      
 
-except Exception as e:
-    print(f'エラーが発生しました: {e}')
+
+    
+
+
+       
+   

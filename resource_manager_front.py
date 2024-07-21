@@ -5,7 +5,6 @@ import customtkinter as ctk
 import json
 from resource_manager import save_selected_period, process_period_data  # バックエンドの関数をインポート
 
-
 # タスクを保存するためのリスト
 tasks = []
 
@@ -61,6 +60,7 @@ def on_save_selected_period():
     save_selected_period(start_date, end_date)
     print(f"Selected Start Date: {start_date}")
     print(f"Selected End Date: {end_date}")
+
     # バックエンドの関数を呼び出して期間を処理
     process_period_data()
 
