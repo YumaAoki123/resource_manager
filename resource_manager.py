@@ -58,7 +58,7 @@ def get_minutes_set(start, end):
 
 
 def process_period_data():
-    start_time, end_time = load_selected_period()
+    start_time, end_time  = load_selected_period()
     print(f"Start Time: {start_time}")
     print(f"End Time: {end_time}")
 
@@ -125,12 +125,9 @@ def process_period_data():
            # print(f'タイトル: {event["summary"]} 開始日時: {start}')
             #print(f'タイトル: {event["summary"]} 終了日時: {end}')
             #print('---')
-
-        # 合計時間を出力
-        print(f'2024年6月1日のイベント時間の合計は {total_duration_hours} 時間です。')
-        print(f'2024年6月1日のその他のイベント(食事など)合計は {sum_others} 時間です。')
-        print(f'2024年6月1日の空き時間の合計は {free_hours} 時間です。')
-        print(f'指定された期間の合計時間は {total_hours} 時間です。')
+        return free_hours, total_duration_hours, sum_others, total_hours
+    
+     
       
 
 

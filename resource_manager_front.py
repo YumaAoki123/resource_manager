@@ -57,13 +57,16 @@ def update_task_listbox():
 def on_save_selected_period():
     start_date = cal_start.get_date()
     end_date = cal_end.get_date()
-    save_selected_period(start_date, end_date)
+    sleep_hours = float(sleep_hours_entry.get())
+    meal_hours = float(meal_hours_entry.get())
+    commute_hours = float(commute_hours_entry.get())
+    save_selected_period(start_date, end_date, sleep_hours, meal_hours, commute_hours)
     print(f"Selected Start Date: {start_date}")
     print(f"Selected End Date: {end_date}")
-
+    free_hours, total_duration_hours, sum_others, total_hours = process_period_data()
+    result_label.configure(text=f"Free time: {total_hours} hours")
     # バックエンドの関数を呼び出して期間を処理
     process_period_data()
-
 
 # GUIのセットアップ
 app = ctk.CTk()
@@ -111,6 +114,24 @@ task_entry = ctk.CTkEntry(task_management_frame, width=50)
 task_entry.grid(row=4, column=0, padx=10, pady=5, sticky="w")
 add_button = ctk.CTkButton(task_management_frame, text="Add Task", command=add_task)
 add_button.grid(row=5, column=0, padx=10, pady=5, sticky="w")
+
+
+# ユーザー入力用のテキストエリア
+sleep_hours_label = ctk.CTkLabel(task_management_frame, text="Sleep Hours:")
+sleep_hours_label.grid(row=6, column=0, padx=10, pady=5, sticky="w")
+sleep_hours_entry = ctk.CTkEntry(task_management_frame)
+sleep_hours_entry.grid(row=6, column=1, padx=10, pady=5, sticky="ew")
+
+meal_hours_label = ctk.CTkLabel(task_management_frame, text="Meal Hours:")
+meal_hours_label.grid(row=7, column=0, padx=10, pady=5, sticky="w")
+meal_hours_entry = ctk.CTkEntry(task_management_frame)
+meal_hours_entry.grid(row=7, column=1, padx=10, pady=5, sticky="ew")
+
+commute_hours_label = ctk.CTkLabel(task_management_frame, text="Commute Hours:")
+commute_hours_label.grid(row=8, column=0, padx=10, pady=5, sticky="w")
+commute_hours_entry = ctk.CTkEntry(task_management_frame)
+commute_hours_entry.grid(row=8, column=1, padx=10, pady=5, sticky="ew")
+
 
 # タスク一覧タブ
 task_list_frame = ctk.CTkFrame(notebook)
