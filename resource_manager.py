@@ -28,10 +28,13 @@ def is_excluded_weekday(date):
 
 
 
-def save_selected_period(start_date, end_date):
+def save_selected_period(start_date, end_date, sleep_hours, meal_hours, commute_hours):
     period_data = {
         "start_date": start_date.strftime("%Y-%m-%d"),
-        "end_date": end_date.strftime("%Y-%m-%d")
+        "end_date": end_date.strftime("%Y-%m-%d"),
+        "sleep_hours": sleep_hours,
+        "meal_hours": meal_hours,
+        "commute_hours": commute_hours
     }
     with open("selected_period.json", "w") as f:
         json.dump(period_data, f)
@@ -44,7 +47,10 @@ def load_selected_period():
         end_date = datetime.strptime(period_data["end_date"], "%Y-%m-%d")
         start_time = japan_tz.localize(start_date)
         end_time = japan_tz.localize(end_date)
-        return start_time, end_time
+        sleep_hours = period_data.get("sleep_hours", 0)
+        meal_hours = period_data.get("meal_hours", 0)
+        commute_hours = period_data.get("commute_hours", 0)
+        return start_time, end_time, sleep_hours, meal_hours, commute_hours
     
     
 def get_minutes_set(start, end):
@@ -58,14 +64,17 @@ def get_minutes_set(start, end):
 
 
 def process_period_data():
-    start_time, end_time  = load_selected_period()
+    start_time, end_time, sleep_hours, meal_hours, commute_hours = load_selected_period()
     print(f"Start Time: {start_time}")
     print(f"End Time: {end_time}")
+    print(f"sleep_hours Time: {sleep_hours}")
+    print(f"meal_hours Time: {meal_hours}")
 
     delta = end_time - start_time
     days_count = delta.days
 
     # 日付をISO 8601形式に変換してクエリを作成
+
     start_time_str = start_time.isoformat()
     end_time_str = end_time.isoformat()
 
@@ -103,15 +112,10 @@ def process_period_data():
         total_duration_hours = total_duration_minutes / 60  # 時間単位に変換
         current_time = start_time
         total_hours = 0
-        sleep_hours = 0
-        meal_hours = 0
-        commute_hours = 0
         while current_time < end_time:
             if not is_excluded_weekday(current_time):
                 total_hours += 24  # 1日を24時間としてカウント
-                sleep_hours += 6 
-                meal_hours += 1.66
-                commute_hours += 1.33
+              
             current_time += timedelta(days=1)
         
         sum_others = sleep_hours + meal_hours + commute_hours

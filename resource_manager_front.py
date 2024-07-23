@@ -64,7 +64,11 @@ def on_save_selected_period():
     print(f"Selected Start Date: {start_date}")
     print(f"Selected End Date: {end_date}")
     free_hours, total_duration_hours, sum_others, total_hours = process_period_data()
-    result_label.configure(text=f"Free time: {total_hours} hours")
+    result_label.configure(text=f"Free time: {free_hours} hours")
+    total_hours_label.configure(text=f"total_hours: {total_hours} hours")
+    sleep_hours_label.configure(text=f"sleep hours: {sleep_hours} hours")
+    meal_hours_label.configure(text=f"sleep hours: {meal_hours} hours")
+    commute_hours_label.configure(text=f"sleep hours: {commute_hours} hours")
     # バックエンドの関数を呼び出して期間を処理
     process_period_data()
 
@@ -108,12 +112,10 @@ search_button.grid(row=2, column=0, columnspan=2, pady=5, sticky="ew")
 
 result_label = ctk.CTkLabel(task_management_frame, text="Free time: ")
 result_label.grid(row=3, column=0, columnspan=2, pady=10, sticky="ew")
+total_hours_label = ctk.CTkLabel(task_management_frame, text="total hours: ")
+total_hours_label.grid(row=4, column=0, columnspan=2, pady=10, sticky="ew")
 
-# タスク入力欄と追加ボタン
-task_entry = ctk.CTkEntry(task_management_frame, width=50)
-task_entry.grid(row=4, column=0, padx=10, pady=5, sticky="w")
-add_button = ctk.CTkButton(task_management_frame, text="Add Task", command=add_task)
-add_button.grid(row=5, column=0, padx=10, pady=5, sticky="w")
+
 
 
 # ユーザー入力用のテキストエリア
@@ -131,6 +133,12 @@ commute_hours_label = ctk.CTkLabel(task_management_frame, text="Commute Hours:")
 commute_hours_label.grid(row=8, column=0, padx=10, pady=5, sticky="w")
 commute_hours_entry = ctk.CTkEntry(task_management_frame)
 commute_hours_entry.grid(row=8, column=1, padx=10, pady=5, sticky="ew")
+
+# タスク入力欄と追加ボタン
+task_entry = ctk.CTkEntry(task_management_frame, width=50)
+task_entry.grid(row=8, column=0, padx=10, pady=5, sticky="w")
+add_button = ctk.CTkButton(task_management_frame, text="Add Task", command=add_task)
+add_button.grid(row=9, column=0, padx=10, pady=5, sticky="w")
 
 
 # タスク一覧タブ
