@@ -238,11 +238,44 @@ commute_hours_entry.grid(row=9, column=1, padx=10, pady=5, sticky="w")
 task_list_frame = ctk.CTkFrame(notebook)
 notebook.add(task_list_frame, text="タスク一覧")
 
+# ウィンドウ全体にグリッドを設定
+task_list_frame.grid_columnconfigure(0, weight=1)  # 左カラム
+task_list_frame.grid_columnconfigure(1, weight=3)  # 右カラムを大きくする
+task_list_frame.grid_rowconfigure(0, weight=1)
+
 task_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)  # ここを修正
 task_listbox.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
 delete_button = ctk.CTkButton(task_list_frame, text="Delete Task", command=delete_task)
 delete_button.grid(row=1, column=0, pady=5, sticky="ew")
+
+# タスク詳細を表示する関数
+def show_task_details(event):
+    # 選択されたタスクのインデックスを取得
+    selected_index = task_listbox.curselection()
+    if selected_index:
+        index = selected_index[0]
+        task = tasks[index]
+        
+        # ラベルにタスク詳細を表示
+        details_text = f"タスク名: {task['name']}\n" \
+                       f"所要時間: {task['task_duration']} 分\n" \
+                       f"開始日: {task['start_date']}\n" \
+                       f"終了日: {task['end_date']}\n" \
+
+        details_label.configure(text=details_text)
+
+# タスク詳細を表示するラベル
+details_label = ctk.CTkLabel(
+    task_list_frame,
+    text="タスクの詳細をここに表示",
+    font=("Arial", 25),
+    anchor="w",
+    justify="left",
+    fg_color="white",
+    corner_radius=5
+)
+details_label.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
 
 # タスク管理タブ
 user_information_frame = ctk.CTkFrame(notebook)
@@ -251,5 +284,8 @@ notebook.add(user_information_frame, text="ユーザ情報")
 # タスクデータをロードして表示
 load_tasks()
 update_task_listbox()
+
+# ダブルクリックイベントのバインディング
+task_listbox.bind('<Double-1>', show_task_details)
 
 app.mainloop()
