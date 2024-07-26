@@ -4,22 +4,25 @@ from tkcalendar import DateEntry
 import customtkinter as ctk
 import json
 from resource_manager import save_selected_period, process_period_data  # バックエンドの関数をインポート
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import matplotlib.pyplot as plt
 
 # タスクを保存するためのリスト
 tasks = []
 
 SELECTED_PERIOD_FILE = 'selected_period.json'
+DATA_FILE = 'tasks.json'
 
 # タスクデータをファイルに保存する関数
 def save_tasks():
-    with open("tasks.json", "w") as f:
+    with open(DATA_FILE, "w") as f:
         json.dump(tasks, f)
 
 # タスクデータをファイルから読み込む関数
 def load_tasks():
     global tasks
     try:
-        with open("tasks.json", "r") as f:
+        with open(DATA_FILE, "r") as f:
             tasks = json.load(f)
     except FileNotFoundError:
         tasks = []
@@ -134,7 +137,7 @@ def update_task_listbox():
 
 def create_label(window, text, fg_color):
     label = tk.Label(window, text=text, fg=fg_color, font=("Arial", 12))
-    label.pack(pady=10)
+    label.grid(pady=10)
     return label
 
 
@@ -159,6 +162,24 @@ def on_save_selected_period():
     # バックエンドの関数を呼び出して期間を処理
     process_period_data()
     compare_hours(free_hours, task_duration)
+
+
+# タスク詳細を表示する関数
+def show_task_details(event):
+    # 選択されたタスクのインデックスを取得
+    selected_index = task_listbox.curselection()
+    if selected_index:
+        index = selected_index[0]
+        task = tasks[index]
+        
+        # ラベルにタスク詳細を表示
+        details_text = f"タスク名: {task['name']}\n" \
+                       f"所要時間: {task['task_duration']} 分\n" \
+                       f"開始日: {task['start_date']}\n" \
+                       f"終了日: {task['end_date']}\n"
+
+        details_label.configure(text=details_text)
+
 
 # GUIのセットアップ
 app = ctk.CTk()
@@ -242,28 +263,14 @@ notebook.add(task_list_frame, text="タスク一覧")
 task_list_frame.grid_columnconfigure(0, weight=1)  # 左カラム
 task_list_frame.grid_columnconfigure(1, weight=3)  # 右カラムを大きくする
 task_list_frame.grid_rowconfigure(0, weight=1)
+task_list_frame.grid_rowconfigure(1, weight=1)
 
 task_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)  # ここを修正
 task_listbox.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
-delete_button = ctk.CTkButton(task_list_frame, text="Delete Task", command=delete_task)
+
+delete_button = ctk.CTkButton(task_list_frame, text="Delete Task")
 delete_button.grid(row=1, column=0, pady=5, sticky="ew")
-
-# タスク詳細を表示する関数
-def show_task_details(event):
-    # 選択されたタスクのインデックスを取得
-    selected_index = task_listbox.curselection()
-    if selected_index:
-        index = selected_index[0]
-        task = tasks[index]
-        
-        # ラベルにタスク詳細を表示
-        details_text = f"タスク名: {task['name']}\n" \
-                       f"所要時間: {task['task_duration']} 分\n" \
-                       f"開始日: {task['start_date']}\n" \
-                       f"終了日: {task['end_date']}\n" \
-
-        details_label.configure(text=details_text)
 
 # タスク詳細を表示するラベル
 details_label = ctk.CTkLabel(
@@ -275,17 +282,37 @@ details_label = ctk.CTkLabel(
     fg_color="white",
     corner_radius=5
 )
-details_label.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+details_label.grid(row=0, column=1, padx=10, pady=(10, 0), sticky="nsew")
+
+# プログレスバーを表示するためのFigureとAxesを作成
+fig, ax = plt.subplots(figsize=(5, 2))
+canvas = FigureCanvasTkAgg(fig, master=task_list_frame)  # 描画領域をTkinterウィジェットに設定
+canvas.get_tk_widget().grid(row=1, column=1, padx=10, pady=(0, 10), sticky="nsew")  # gridを使用して配置
+
+def update_progress(progress):
+    """進捗バーを更新する"""
+    # グラフをクリア
+    ax.clear()
+    # プログレスバーを描画
+    ax.barh(['Task Progress'], [progress], color='skyblue')
+    ax.set_xlim(0, 100)  # x軸の範囲を0〜100に設定
+    ax.set_xlabel('Progress (%)')  # x軸のラベルを設定
+    ax.set_title('Task Progress')  # グラフのタイトルを設定
+    canvas.draw()  # キャンバスを再描画
+
+# 進捗を更新（例として50%を設定）
+update_progress(50)
 
 # タスク管理タブ
 user_information_frame = ctk.CTkFrame(notebook)
 notebook.add(user_information_frame, text="ユーザ情報")
 
+# ダブルクリックイベントのバインディング
+task_listbox.bind('<Double-1>', show_task_details)
+
 # タスクデータをロードして表示
 load_tasks()
 update_task_listbox()
 
-# ダブルクリックイベントのバインディング
-task_listbox.bind('<Double-1>', show_task_details)
-
+# メインループの開始
 app.mainloop()
