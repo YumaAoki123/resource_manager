@@ -5,13 +5,14 @@ from datetime import datetime, timedelta, timezone
 import pytz
 from dotenv import load_dotenv
 import os
+import json
 
 load_dotenv()
 
 email = os.getenv('EMAIL')
 
 # サービスアカウントキーファイルのパスを指定する
-SERVICE_ACCOUNT_FILE = '/resource_manager/.creditials.json'
+SERVICE_ACCOUNT_FILE = '/resource_manager/creditials.json'
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
@@ -25,6 +26,36 @@ service = build('calendar', 'v3', credentials=credentials)
 def is_excluded_weekday(date):
     return date.weekday() in [5, 6]  # 土曜日(5)と日曜日(6)を除外
 
+
+
+def save_selected_period(task_name, task_duration, start_date, end_date, sleep_hours, meal_hours, commute_hours):
+    period_data = {
+        "task_name": task_name,
+        "task_duration": task_duration,
+        "start_date": start_date.strftime("%Y-%m-%d"),
+        "end_date": end_date.strftime("%Y-%m-%d"),
+        "sleep_hours": sleep_hours,
+        "meal_hours": meal_hours,
+        "commute_hours": commute_hours
+    }
+    with open("selected_period.json", "w") as f:
+        json.dump(period_data, f)
+
+def load_selected_period():
+    with open("selected_period.json", "r") as f:
+        period_data = json.load(f)
+        japan_tz = pytz.timezone('Asia/Tokyo')
+        start_date = datetime.strptime(period_data["start_date"], "%Y-%m-%d")
+        end_date = datetime.strptime(period_data["end_date"], "%Y-%m-%d")
+        start_time = japan_tz.localize(start_date)
+        end_time = japan_tz.localize(end_date)
+        task_name = period_data.get("task_name", 0)
+        sleep_hours = period_data.get("sleep_hours", 0)
+        meal_hours = period_data.get("meal_hours", 0)
+        commute_hours = period_data.get("commute_hours", 0)
+        return task_name, start_time, end_time, sleep_hours, meal_hours, commute_hours
+    
+    
 def get_minutes_set(start, end):
     """開始時間と終了時間の間の時間を分単位でセットとして返す"""
     current = start
@@ -34,18 +65,19 @@ def get_minutes_set(start, end):
         current += timedelta(minutes=1)
     return minutes_set
 
-try:
-    # 日本のタイムゾーンを設定
-    japan_tz = pytz.timezone('Asia/Tokyo')
 
-    # 2024年6月1日の開始と終了を設定（日本時間）
-    start_time = japan_tz.localize(datetime(2024, 7, 12, 0, 0, 0))
-    end_time = japan_tz.localize(datetime(2024, 7, 16, 0, 0, 0))
+def process_period_data():
+    task_name, start_time, end_time, sleep_hours, meal_hours, commute_hours = load_selected_period()
+    print(f"Start Time: {start_time}")
+    print(f"End Time: {end_time}")
+    print(f"sleep_hours Time: {sleep_hours}")
+    print(f"meal_hours Time: {meal_hours}")
 
     delta = end_time - start_time
     days_count = delta.days
 
     # 日付をISO 8601形式に変換してクエリを作成
+
     start_time_str = start_time.isoformat()
     end_time_str = end_time.isoformat()
 
@@ -83,15 +115,10 @@ try:
         total_duration_hours = total_duration_minutes / 60  # 時間単位に変換
         current_time = start_time
         total_hours = 0
-        sleep_hours = 0
-        meal_hours = 0
-        commute_hours = 0
         while current_time < end_time:
             if not is_excluded_weekday(current_time):
                 total_hours += 24  # 1日を24時間としてカウント
-                sleep_hours += 6 
-                meal_hours += 1.66
-                commute_hours += 1.33
+              
             current_time += timedelta(days=1)
         
         sum_others = sleep_hours + meal_hours + commute_hours
@@ -102,15 +129,7 @@ try:
         for event in events:
             start = event['start'].get('dateTime', event['start'].get('date'))
             end = event['end'].get('dateTime', event['end'].get('date'))
-           # print(f'タイトル: {event["summary"]} 開始日時: {start}')
-            #print(f'タイトル: {event["summary"]} 終了日時: {end}')
-            #print('---')
-
-        # 合計時間を出力
-        print(f'2024年6月1日のイベント時間の合計は {total_duration_hours} 時間です。')
-        print(f'2024年6月1日のその他のイベント(食事など)合計は {sum_others} 時間です。')
-        print(f'2024年6月1日の空き時間の合計は {free_hours} 時間です。')
-        print(f'指定された期間の合計時間は {total_hours} 時間です。')
-
-except Exception as e:
-    print(f'エラーが発生しました: {e}')
+            print(f'タイトル: {event["summary"]} 開始日時: {start}')
+            print(f'タイトル: {event["summary"]} 終了日時: {end}')
+            print('---')
+        return free_hours, total_duration_hours, sum_others, total_hours
