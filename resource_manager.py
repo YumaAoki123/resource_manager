@@ -129,9 +129,7 @@ def process_period_data():
         for event in events:
             start = event['start'].get('dateTime', event['start'].get('date'))
             end = event['end'].get('dateTime', event['end'].get('date'))
-           # print(f'タイトル: {event["summary"]} 開始日時: {start}')
-            #print(f'タイトル: {event["summary"]} 終了日時: {end}')
-            #print('---')
+            print(f'タイトル: {event["summary"]} 開始日時: {start}')
+            print(f'タイトル: {event["summary"]} 終了日時: {end}')
+            print('---')
         return free_hours, total_duration_hours, sum_others, total_hours
-    
-     

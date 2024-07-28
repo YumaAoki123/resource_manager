@@ -181,6 +181,38 @@ def show_task_details(event):
         details_label.configure(text=details_text)
 
 
+
+
+# イベント作成ウィンドウを作成する関数
+def create_event_window():
+    # 新しいウィンドウを作成
+    event_window = ctk.CTk()
+    event_window.title("イベント作成")
+    event_window.geometry("400x300")
+
+    selected_index = task_listbox.curselection()
+    if selected_index:
+        index = selected_index[0]
+        task = tasks[index]
+
+    # タスク詳細をイベント情報として表示
+    event_details_text = f"イベント名: {task['name']}\n" \
+                         f"予定時間: {task['task_duration']} 分\n" \
+                         f"開始日: {task['start_date']}\n" \
+                         f"終了日: {task['end_date']}\n"
+
+    event_details_label = ctk.CTkLabel(event_window, text=event_details_text, justify="left")
+    event_details_label.grid(pady=20, padx=20)
+
+    # Googleカレンダーに追加するボタン
+    add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加", command=lambda: add_task_to_calendar(task))
+    add_event_button.grid(pady=20)
+
+    event_window.mainloop()
+
+
+
+
 # GUIのセットアップ
 app = ctk.CTk()
 app.title("resource_manager")
@@ -271,6 +303,10 @@ task_listbox.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
 delete_button = ctk.CTkButton(task_list_frame, text="Delete Task")
 delete_button.grid(row=1, column=0, pady=5, sticky="ew")
+
+# イベント作成ウィンドウを開くボタン
+create_event_button = ctk.CTkButton(task_list_frame, text="Create Event", command=create_event_window)
+create_event_button.grid(row=2, column=0, pady=5, sticky="ew")
 
 # タスク詳細を表示するラベル
 details_label = ctk.CTkLabel(
