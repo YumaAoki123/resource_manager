@@ -3,7 +3,7 @@ from tkinter import messagebox, simpledialog, ttk
 from tkcalendar import DateEntry
 import customtkinter as ctk
 import json
-from resource_manager import save_selected_period, process_period_data  # バックエンドの関数をインポート
+from resource_manager import save_selected_period, process_period_data, get_free_time_slots  # バックエンドの関数をインポート
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 
@@ -181,6 +181,34 @@ def show_task_details(event):
         details_label.configure(text=details_text)
 
 
+def add_event_to_calendar(service, email, start_time, end_time, summary):
+    event = {
+        'summary': summary,
+        'start': {
+            'dateTime': start_time.isoformat(),
+            'timeZone': 'Asia/Tokyo',  # 例として東京のタイムゾーンを使用
+        },
+        'end': {
+            'dateTime': end_time.isoformat(),
+            'timeZone': 'Asia/Tokyo',
+        },
+    }
+
+    service.events().insert(calendarId=email, body=event).execute()
+    print(f"イベント '{summary}' が追加されました: {start_time} - {end_time}")
+
+    free_hours, total_duration_hours, sum_others, total_hours, all_minutes = process_period_data()
+    event_duration_minutes = 60  # イベントの持続時間（分）
+
+    free_slots = get_free_time_slots(start_time, end_time, all_minutes, event_duration_minutes)
+
+if free_slots:
+    start_slot, end_slot = free_slots[0]  # 最初の空きスロットに追加
+    add_event_to_calendar(service, email, start_slot, end_slot, "新しいイベント")
+else:
+    print("利用可能な空きスロットがありません。")
+
+
 
 
 # イベント作成ウィンドウを作成する関数
@@ -205,7 +233,7 @@ def create_event_window():
     event_details_label.grid(pady=20, padx=20)
 
     # Googleカレンダーに追加するボタン
-    add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加", command=lambda: add_task_to_calendar(task))
+    add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加", command=lambda: add_event_to_calendar(task))
     add_event_button.grid(pady=20)
 
     event_window.mainloop()
@@ -302,7 +330,7 @@ task_listbox.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
 
 delete_button = ctk.CTkButton(task_list_frame, text="Delete Task")
-delete_button.grid(row=1, column=0, pady=5, sticky="ew")
+delete_button.grid(row=1, column=0, pady=5, sticky="ew", command=delete_task)
 
 # イベント作成ウィンドウを開くボタン
 create_event_button = ctk.CTkButton(task_list_frame, text="Create Event", command=create_event_window)
@@ -349,6 +377,8 @@ task_listbox.bind('<Double-1>', show_task_details)
 # タスクデータをロードして表示
 load_tasks()
 update_task_listbox()
+
+
 
 # メインループの開始
 app.mainloop()

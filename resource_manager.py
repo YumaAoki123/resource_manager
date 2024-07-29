@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 import os
 import json
 
+
+
 load_dotenv()
 
 email = os.getenv('EMAIL')
@@ -132,4 +134,52 @@ def process_period_data():
             print(f'タイトル: {event["summary"]} 開始日時: {start}')
             print(f'タイトル: {event["summary"]} 終了日時: {end}')
             print('---')
-        return free_hours, total_duration_hours, sum_others, total_hours
+        return free_hours, total_duration_hours, sum_others, total_hours, all_minutes
+    
+
+
+    
+def get_free_busy_times(service, calendar_id, start_time, end_time):
+    """カレンダーの空き時間を取得"""
+    body = {
+        "timeMin": start_time.isoformat() + 'Z',  # UTC時間
+        "timeMax": end_time.isoformat() + 'Z',
+        "items": [{"id": calendar_id}]
+    }
+    response = service.freebusy().query(body=body).execute()
+    busy_times = response['calendars'][calendar_id]['busy']
+    
+    free_slots = []
+    current_time = start_time
+
+    for busy in busy_times:
+        busy_start = datetime.fromisoformat(busy['start'].replace('Z', '+00:00'))
+        busy_end = datetime.fromisoformat(busy['end'].replace('Z', '+00:00'))
+
+        if current_time < busy_start:
+            free_slots.append((current_time, busy_start))
+        
+        current_time = max(current_time, busy_end)
+
+    if current_time < end_time:
+        free_slots.append((current_time, end_time))
+
+    return free_slots
+
+calendar_id = email
+
+# UTCタイムゾーンを指定
+utc = pytz.utc
+
+process_period_data()
+
+# 空き時間を取得する期間の指定
+start_time = utc.localize(datetime.utcnow())
+end_time = start_time + timedelta(days=1)
+
+# 空き時間スロットの取得
+free_slots = get_free_busy_times(service, calendar_id, start_time, end_time)
+
+# 空き時間スロットの出力
+for start, end in free_slots:
+    print(f"空き時間: 開始 {start} 終了 {end}")
