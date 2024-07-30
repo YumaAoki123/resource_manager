@@ -9,9 +9,22 @@ import json
 
 
 
+# タスクを保存するためのリスト
+tasks = []
+
 load_dotenv()
 
 email = os.getenv('EMAIL')
+DATA_FILE = 'tasks.json'
+
+# タスクデータをファイルから読み込む関数
+def load_tasks():
+    global tasks
+    try:
+        with open(DATA_FILE, "r") as f:
+            tasks = json.load(f)
+    except FileNotFoundError:
+        tasks = []
 
 # サービスアカウントキーファイルのパスを指定する
 SERVICE_ACCOUNT_FILE = '/resource_manager/creditials.json'
@@ -134,52 +147,44 @@ def process_period_data():
             print(f'タイトル: {event["summary"]} 開始日時: {start}')
             print(f'タイトル: {event["summary"]} 終了日時: {end}')
             print('---')
-        return free_hours, total_duration_hours, sum_others, total_hours, all_minutes
+            
+        return free_hours, total_duration_hours, sum_others, total_hours
     
-
-
+def get_free_times(start_time, end_time, calendar_id=email):
+    jst = pytz.timezone('Asia/Tokyo')
     
-def get_free_busy_times(service, calendar_id, start_time, end_time):
-    """カレンダーの空き時間を取得"""
-    body = {
-        "timeMin": start_time.isoformat() + 'Z',  # UTC時間
-        "timeMax": end_time.isoformat() + 'Z',
-        "items": [{"id": calendar_id}]
-    }
-    response = service.freebusy().query(body=body).execute()
-    busy_times = response['calendars'][calendar_id]['busy']
+# request_bodyの作成
+    request_body = {
+     "timeMin": start_time.isoformat(),
+     "timeMax": end_time.isoformat(),
+     "timeZone": "Asia/Tokyo",
+     "items": [{"id": calendar_id}]
+}
     
-    free_slots = []
-    current_time = start_time
-
-    for busy in busy_times:
-        busy_start = datetime.fromisoformat(busy['start'].replace('Z', '+00:00'))
-        busy_end = datetime.fromisoformat(busy['end'].replace('Z', '+00:00'))
-
-        if current_time < busy_start:
-            free_slots.append((current_time, busy_start))
+    # freebusyリクエストを送信
+    freebusy_result = service.freebusy().query(body=request_body).execute()
+    
+    busy_times = freebusy_result['calendars'][calendar_id]['busy']
+    
+    # 空き時間を計算
+    free_times = []
+    last_end_time = start_time
+    
+    for busy_period in busy_times:
+        busy_start = datetime.fromisoformat(busy_period['start'].replace('Z', '+00:00')).astimezone(jst)
+        busy_end = datetime.fromisoformat(busy_period['end'].replace('Z', '+00:00')).astimezone(jst)
+        last_end_time = last_end_time.astimezone(jst)
         
-        current_time = max(current_time, busy_end)
-
-    if current_time < end_time:
-        free_slots.append((current_time, end_time))
-
-    return free_slots
-
-calendar_id = email
-
-# UTCタイムゾーンを指定
-utc = pytz.utc
-
-process_period_data()
-
-# 空き時間を取得する期間の指定
-start_time = utc.localize(datetime.utcnow())
-end_time = start_time + timedelta(days=1)
-
-# 空き時間スロットの取得
-free_slots = get_free_busy_times(service, calendar_id, start_time, end_time)
-
-# 空き時間スロットの出力
-for start, end in free_slots:
-    print(f"空き時間: 開始 {start} 終了 {end}")
+        if last_end_time < busy_start:
+            free_times.append((last_end_time, busy_start))
+        
+        if busy_end > last_end_time:
+            last_end_time = busy_end
+    
+    if last_end_time < end_time:
+        free_times.append((last_end_time, end_time))
+ 
+    for free_start, free_end in free_times:
+     print(f"空き時間: {free_start} から {free_end}")
+    
+    

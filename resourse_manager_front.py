@@ -3,12 +3,19 @@ from tkinter import messagebox, simpledialog, ttk
 from tkcalendar import DateEntry
 import customtkinter as ctk
 import json
-from resource_manager import save_selected_period, process_period_data, get_free_time_slots  # バックエンドの関数をインポート
+from resource_manager import save_selected_period, process_period_data, get_free_times # バックエンドの関数をインポート
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
+from dotenv import load_dotenv
+import os
+from datetime import datetime, timedelta, timezone
+import pytz
 
 # タスクを保存するためのリスト
 tasks = []
+load_dotenv()
+
+email = os.getenv('EMAIL')
 
 SELECTED_PERIOD_FILE = 'selected_period.json'
 DATA_FILE = 'tasks.json'
@@ -181,32 +188,7 @@ def show_task_details(event):
         details_label.configure(text=details_text)
 
 
-def add_event_to_calendar(service, email, start_time, end_time, summary):
-    event = {
-        'summary': summary,
-        'start': {
-            'dateTime': start_time.isoformat(),
-            'timeZone': 'Asia/Tokyo',  # 例として東京のタイムゾーンを使用
-        },
-        'end': {
-            'dateTime': end_time.isoformat(),
-            'timeZone': 'Asia/Tokyo',
-        },
-    }
 
-    service.events().insert(calendarId=email, body=event).execute()
-    print(f"イベント '{summary}' が追加されました: {start_time} - {end_time}")
-
-    free_hours, total_duration_hours, sum_others, total_hours, all_minutes = process_period_data()
-    event_duration_minutes = 60  # イベントの持続時間（分）
-
-    free_slots = get_free_time_slots(start_time, end_time, all_minutes, event_duration_minutes)
-
-if free_slots:
-    start_slot, end_slot = free_slots[0]  # 最初の空きスロットに追加
-    add_event_to_calendar(service, email, start_slot, end_slot, "新しいイベント")
-else:
-    print("利用可能な空きスロットがありません。")
 
 
 
@@ -228,12 +210,23 @@ def create_event_window():
                          f"予定時間: {task['task_duration']} 分\n" \
                          f"開始日: {task['start_date']}\n" \
                          f"終了日: {task['end_date']}\n"
+    
 
     event_details_label = ctk.CTkLabel(event_window, text=event_details_text, justify="left")
     event_details_label.grid(pady=20, padx=20)
 
+# 文字列をdatetimeオブジェクトに変換
+    start_time = datetime.fromisoformat(task['start_date'].replace('Z', '+00:00'))
+    end_time = datetime.fromisoformat(task['end_date'].replace('Z', '+00:00'))
+ 
+# UTCタイムゾーンを設定
+    start_time = start_time.replace(tzinfo=pytz.UTC)
+    end_time = end_time.replace(tzinfo=pytz.UTC)
+
+    get_free_times(start_time, end_time, calendar_id=email)
+
     # Googleカレンダーに追加するボタン
-    add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加", command=lambda: add_event_to_calendar(task))
+    add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加")
     add_event_button.grid(pady=20)
 
     event_window.mainloop()
@@ -330,7 +323,7 @@ task_listbox.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
 
 delete_button = ctk.CTkButton(task_list_frame, text="Delete Task")
-delete_button.grid(row=1, column=0, pady=5, sticky="ew", command=delete_task)
+delete_button.grid(row=1, column=0, pady=5, sticky="ew")
 
 # イベント作成ウィンドウを開くボタン
 create_event_button = ctk.CTkButton(task_list_frame, text="Create Event", command=create_event_window)
