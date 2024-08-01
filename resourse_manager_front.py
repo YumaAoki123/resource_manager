@@ -70,6 +70,7 @@ def compare_hours(free_hours, task_duration):
     loading_animation = LoadingAnimation(window)
     loading_animation.start()
     
+    
     def show_result():
         # 比較結果を判定し、ラベルのテキストと色を設定
         if task_duration > free_hours:
@@ -157,7 +158,7 @@ def on_save_selected_period():
     sleep_hours = float(sleep_hours_entry.get())
     meal_hours = float(meal_hours_entry.get())
     commute_hours = float(commute_hours_entry.get())
-    save_selected_period(task_name, task_duration, start_date, end_date, sleep_hours, meal_hours, commute_hours)
+    save_selected_period(task_name, task_duration, start_date, end_date)
     print(f"Selected Start Date: {start_date}")
     print(f"Selected End Date: {end_date}")
     free_hours, total_duration_hours, sum_others, total_hours = process_period_data()
@@ -216,19 +217,25 @@ def create_event_window():
     event_details_label.grid(pady=20, padx=20)
 
 # 文字列をdatetimeオブジェクトに変換
-    start_time = datetime.fromisoformat(task['start_date'].replace('Z', '+00:00'))
-    end_time = datetime.fromisoformat(task['end_date'].replace('Z', '+00:00'))
+    start_time = datetime.fromisoformat(task['start_date'])
+    end_time = datetime.fromisoformat(task['end_date'])
  
-# UTCタイムゾーンを設定
-    start_time = start_time.replace(tzinfo=pytz.UTC)
-    end_time = end_time.replace(tzinfo=pytz.UTC)
+    
+    print(f"Request Body: {start_time}")  # デバッグ用
+    # 空き時間を取得
+    free_times = get_free_times(start_time, end_time, calendar_id=email)
 
-    get_free_times(start_time, end_time, calendar_id=email)
+    # 空き時間を表示（または他の処理に利用）
+    free_times_text = "空き時間:\n" + "\n".join(
+        [f"開始: {start} 終了: {end}" for start, end in free_times]
+    )
+    free_times_label = ctk.CTkLabel(event_window, text=free_times_text, justify="left")
+    free_times_label.grid(pady=20, padx=20)
 
     # Googleカレンダーに追加するボタン
     add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加")
     add_event_button.grid(pady=20)
-
+       
     event_window.mainloop()
 
 

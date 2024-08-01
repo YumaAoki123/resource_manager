@@ -43,7 +43,7 @@ def is_excluded_weekday(date):
 
 
 
-def save_selected_period(task_name, task_duration, start_date, end_date, sleep_hours, meal_hours, commute_hours):
+def save_selected_period(task_name, task_duration, start_date, end_date):
     # JST タイムゾーンを設定
     jst = pytz.timezone('Asia/Tokyo')
 
@@ -76,9 +76,7 @@ def save_selected_period(task_name, task_duration, start_date, end_date, sleep_h
         "task_duration": task_duration,
         "start_date": start_date_iso,
         "end_date": end_date_iso,
-        "sleep_hours": sleep_hours,
-        "meal_hours": meal_hours,
-        "commute_hours": commute_hours
+       
     }
 
     # JSON ファイルに保存
@@ -193,33 +191,60 @@ def process_period_data():
         return free_hours, total_duration_hours, sum_others, total_hours
     
 def get_free_times(start_time, end_time, calendar_id=email):
-    print(f"start_date_str type: {type(start_time)}")  # デバッグ用
-    print(f"end_date_str type: {type(end_time)}")      # デバッグ用
-
-    # JST タイムゾーンを設定
+    
+  # 空き時間のリスト
+    free_times = []
+  # JST タイムゾーンを設定
     jst = pytz.timezone('Asia/Tokyo')
     
+    # 日本時間からUTCに変換(googlecalendarapiがutcじゃないと読み取らないらしい)
+    start_time_utc = start_time.astimezone(pytz.UTC)
+    end_time_utc = end_time.astimezone(pytz.UTC)
+    print(f"Request Body: {start_time_utc}")  # デバッグ用
     # リクエストのボディを作成
     request_body = {
-        "timeMin": start_time.isoformat(),
-        "timeMax": end_time.isoformat(),
+        "timeMin": start_time_utc.isoformat(),
+        "timeMax": end_time_utc.isoformat(),
         "timeZone": "Asia/Tokyo",  # レスポンスのタイムゾーン
         "items": [{"id": calendar_id}]
     }
     
+    print(f"Request Body: {request_body}")  # デバッグ用
+    
     # freebusyリクエストを送信
     freebusy_result = service.freebusy().query(body=request_body).execute()
-    
+
     busy_times = freebusy_result['calendars'][calendar_id]['busy']
 
-    # 予定のある時間帯を出力
+      # 予定のある時間帯を計算
+    busy_periods = []
     for busy_period in busy_times:
         start = busy_period['start']
         end = busy_period['end']
-        print(f'開始日時: {start}')
-        print(f'終了日時: {end}')
-        print('---')
+        
+        # 日本時間に変換
+        start_time_jst = datetime.fromisoformat(start).astimezone(jst)
+        end_time_jst = datetime.fromisoformat(end).astimezone(jst)
+        
+        busy_periods.append((start_time_jst, end_time_jst))
 
-    
+    # 予定のない時間帯を計算
+    busy_periods.sort()  # 予定のある時間帯をソート
+    current_start = start_time
 
+    for busy_start, busy_end in busy_periods:
+        # 現在の空き時間の終了が予定の開始より前であれば、その間が空き時間
+        if busy_start > current_start:
+            free_times.append((current_start, busy_start))
+        # 現在の空き時間の開始を予定の終了時間に更新
+        current_start = max(current_start, busy_end)
 
+    # 最後の空き時間を追加
+    if current_start < end_time:
+        free_times.append((current_start, end_time))
+
+    # 空き時間を出力
+    for free_start, free_end in free_times:
+        print(f"空いている時間帯: start_time: {free_start} から end_time: {free_end}")
+
+   # return free_times
