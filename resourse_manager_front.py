@@ -65,10 +65,10 @@ def compare_hours(free_hours, task_duration):
     window = ctk.CTk()
     window.title("時間比較結果")
     window.geometry("300x150")  # ウィンドウサイズの設定
-
     # アニメーションウィジェットの作成
     loading_animation = LoadingAnimation(window)
     loading_animation.start()
+
     
     def show_result():
         # 比較結果を判定し、ラベルのテキストと色を設定
@@ -92,30 +92,31 @@ def compare_hours(free_hours, task_duration):
 
 # タスクを追加する関数
 def add_task():
-        # `selected_period.json`ファイルをロード
-        try:
-            with open(SELECTED_PERIOD_FILE, 'r') as f:
-                selected_period_data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            messagebox.showerror("Error", "Selected period data is missing or invalid.")
-            return
-        task_name = selected_period_data.get('task_name')
-        task_duration = selected_period_data.get('task_duration')
-        start_date = selected_period_data.get('start_date')
-        end_date = selected_period_data.get('end_date')
-        sleep_hours = selected_period_data.get('sleep_hours', 0)
-        meal_hours = selected_period_data.get('meal_hours', 0)
-        commute_hours = selected_period_data.get('commute_hours', 0)
-        # Create a task dictionary with additional information
+        task_name = task_entry.get()
+        task_duration = float(task_duration_entry.get())
+        start_date = cal_start.get_date()
+        end_date = cal_end.get_date()
+  
+# もし元がdatetime.date型なら、datetime.datetime型に変換する
+        start_date = datetime.combine(start_date, datetime.min.time())  # datetime.date -> datetime.datetime
+        end_date = datetime.combine(end_date, datetime.min.time())  # datetime.date -> datetime.datetime
+
+# タイムゾーンを日本時間に設定
+        jst = pytz.timezone('Asia/Tokyo')
+        start_date_jst = jst.localize(start_date)
+        end_date_jst = jst.localize(end_date)
+
+# ISO形式の文字列に変換
+        start_date_iso = start_date_jst.isoformat()
+        end_date_iso = end_date_jst.isoformat()
+
         task_info = {
-            "name": task_name,
-            "task_duration": task_duration,
-            "start_date": start_date,
-            "end_date": end_date,
-            "sleep_hours": sleep_hours,
-            "meal_hours": meal_hours,
-            "commute_hours": commute_hours
-        }
+        "task_name": task_name,
+        "task_duration": task_duration,
+        "start_date": start_date_iso,  # ISO形式の文字列に変換された日付
+        "end_date": end_date_iso,
+    }
+        print(f"Adding task: {task_info}")  # デバッグ用の出力
 
         # Append the task dictionary to the task list
         tasks.append(task_info)
@@ -140,7 +141,8 @@ def delete_task():
 def update_task_listbox():
     task_listbox.delete(0, ctk.END)
     for task in tasks:
-        task_listbox.insert(ctk.END, f"{task['name']}")
+        print(f"Current task: {task}")  # デバッグ用の出力
+        task_listbox.insert(ctk.END, f"{task['task_name']}")
 
 def create_label(window, text, fg_color):
     label = tk.Label(window, text=text, fg=fg_color, font=("Arial", 12))
@@ -149,7 +151,7 @@ def create_label(window, text, fg_color):
 
 
 # 選択した期間を取得して保存する関数
-def on_save_selected_period():
+#def on_save_selected_period():
     task_name = task_entry.get()
     task_duration = float(task_duration_entry.get())
     start_date = cal_start.get_date()
@@ -157,7 +159,7 @@ def on_save_selected_period():
     sleep_hours = float(sleep_hours_entry.get())
     meal_hours = float(meal_hours_entry.get())
     commute_hours = float(commute_hours_entry.get())
-    save_selected_period(task_name, task_duration, start_date, end_date, sleep_hours, meal_hours, commute_hours)
+    save_selected_period(task_name, task_duration, start_date, end_date)
     print(f"Selected Start Date: {start_date}")
     print(f"Selected End Date: {end_date}")
     free_hours, total_duration_hours, sum_others, total_hours = process_period_data()
@@ -180,12 +182,14 @@ def show_task_details(event):
         task = tasks[index]
         
         # ラベルにタスク詳細を表示
-        details_text = f"タスク名: {task['name']}\n" \
+        details_text = f"タスク名: {task['task_name']}\n" \
                        f"所要時間: {task['task_duration']} 分\n" \
                        f"開始日: {task['start_date']}\n" \
                        f"終了日: {task['end_date']}\n"
 
         details_label.configure(text=details_text)
+
+       
 
 
 
@@ -198,7 +202,7 @@ def create_event_window():
     # 新しいウィンドウを作成
     event_window = ctk.CTk()
     event_window.title("イベント作成")
-    event_window.geometry("400x300")
+    event_window.geometry("800x500")
 
     selected_index = task_listbox.curselection()
     if selected_index:
@@ -206,7 +210,7 @@ def create_event_window():
         task = tasks[index]
 
     # タスク詳細をイベント情報として表示
-    event_details_text = f"イベント名: {task['name']}\n" \
+    event_details_text = f"イベント名: {task['task_name']}\n" \
                          f"予定時間: {task['task_duration']} 分\n" \
                          f"開始日: {task['start_date']}\n" \
                          f"終了日: {task['end_date']}\n"
@@ -215,20 +219,81 @@ def create_event_window():
     event_details_label = ctk.CTkLabel(event_window, text=event_details_text, justify="left")
     event_details_label.grid(pady=20, padx=20)
 
-# 文字列をdatetimeオブジェクトに変換
-    start_time = datetime.fromisoformat(task['start_date'].replace('Z', '+00:00'))
-    end_time = datetime.fromisoformat(task['end_date'].replace('Z', '+00:00'))
- 
-# UTCタイムゾーンを設定
-    start_time = start_time.replace(tzinfo=pytz.UTC)
-    end_time = end_time.replace(tzinfo=pytz.UTC)
 
-    get_free_times(start_time, end_time, calendar_id=email)
+
+    def get_selected_times():
+        # 各時間帯の選択された開始時刻と終了時刻を取得
+        sleep_start = sleep_start_combobox.get()
+        sleep_end = sleep_end_combobox.get()
+
+        meal_start = meal_start_combobox.get()
+        meal_end = meal_end_combobox.get()
+
+        commute_start = commute_start_combobox.get()
+        commute_end = commute_end_combobox.get()
+
+        # 選択された時間を表示
+        print(f"睡眠時間帯: {sleep_start} - {sleep_end}")
+        print(f"食事時間帯: {meal_start} - {meal_end}")
+        print(f"通勤時間帯: {commute_start} - {commute_end}")     
+        
+
+    # 時刻リストを作成 (1時間ごと)
+    time_options = [f"{hour:02d}:00" for hour in range(24)]
+
+    # 睡眠時間帯のコンボボックス
+    ttk.Label(event_window, text="睡眠時間帯").grid(row=0, column=0, padx=10, pady=5)
+    sleep_start_combobox = ttk.Combobox(event_window, values=time_options)
+    sleep_start_combobox.grid(row=1, column=0, padx=10, pady=5)
+    sleep_start_combobox.current(0)
+
+    sleep_end_combobox = ttk.Combobox(event_window, values=time_options)
+    sleep_end_combobox.grid(row=1, column=1, padx=10, pady=5)
+    sleep_end_combobox.current(0)
+
+    # 食事時間帯のコンボボックス
+    ttk.Label(event_window, text="食事時間帯").grid(row=2, column=0, padx=10, pady=5)
+    meal_start_combobox = ttk.Combobox(event_window, values=time_options)
+    meal_start_combobox.grid(row=3, column=0, padx=10, pady=5)
+    meal_start_combobox.current(0)
+
+    meal_end_combobox = ttk.Combobox(event_window, values=time_options)
+    meal_end_combobox.grid(row=3, column=1, padx=10, pady=5)
+    meal_end_combobox.current(0)
+
+    # 通勤時間帯のコンボボックス
+    ttk.Label(event_window, text="通勤時間帯").grid(row=4, column=0, padx=10, pady=5)
+    commute_start_combobox = ttk.Combobox(event_window, values=time_options)
+    commute_start_combobox.grid(row=5, column=0, padx=10, pady=5)
+    commute_start_combobox.current(0)
+
+    commute_end_combobox = ttk.Combobox(event_window, values=time_options)
+    commute_end_combobox.grid(row=5, column=1, padx=10, pady=5)
+    commute_end_combobox.current(0)
+
+    # ボタンを作成
+    select_button = ttk.Button(event_window, text="Select", command=get_selected_times)
+    select_button.grid(row=6, column=0, columnspan=2, pady=20)
+
+# 文字列をdatetimeオブジェクトに変換
+    start_time = datetime.fromisoformat(task['start_date'])
+    end_time = datetime.fromisoformat(task['end_date'])
+ 
+    print(f"Request Body: {start_time}")  # デバッグ用
+    # 空き時間を取得
+    free_times = get_free_times(start_time, end_time, calendar_id=email)
+
+    # 空き時間を表示（または他の処理に利用）
+    free_times_text = "空き時間:\n" + "\n".join(
+        [f"開始: {start} 終了: {end}" for start, end in free_times]
+    )
+    free_times_label = ctk.CTkLabel(event_window, text=free_times_text, justify="left")
+    free_times_label.grid(pady=20, padx=20)
 
     # Googleカレンダーに追加するボタン
     add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加")
     add_event_button.grid(pady=20)
-
+       
     event_window.mainloop()
 
 
@@ -282,7 +347,7 @@ cal_end_label.grid(row=3, column=0, padx=10, pady=5, sticky="w")
 cal_end = DateEntry(task_management_frame, selectmode='day', year=2024, month=7, day=1, width=12, background='darkblue', foreground='white', borderwidth=2)
 cal_end.grid(row=3, column=1, padx=10, pady=5, sticky="w")
 
-search_button = ctk.CTkButton(task_management_frame, text="Save Selected Period", command=on_save_selected_period)
+search_button = ctk.CTkButton(task_management_frame, text="Save Selected Period")
 search_button.grid(row=4, column=0, padx=10, pady=5, sticky="w")
 
 result_label = ctk.CTkLabel(task_management_frame, text="Free time: ")
@@ -306,6 +371,7 @@ commute_hours_label = ctk.CTkLabel(task_management_frame, text="Commute Hours:")
 commute_hours_label.grid(row=9, column=0, padx=10, pady=5, sticky="w")
 commute_hours_entry = ctk.CTkEntry(task_management_frame)
 commute_hours_entry.grid(row=9, column=1, padx=10, pady=5, sticky="w")
+
 
 
 # タスク一覧タブ

@@ -1,7 +1,7 @@
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date, time
 import pytz
 from dotenv import load_dotenv
 import os
@@ -43,31 +43,71 @@ def is_excluded_weekday(date):
 
 
 
-def save_selected_period(task_name, task_duration, start_date, end_date, sleep_hours, meal_hours, commute_hours):
+def save_selected_period(task_name, task_duration, start_date, end_date):
+    # JST タイムゾーンを設定
+    jst = pytz.timezone('Asia/Tokyo')
+
+    # start_date と end_date が datetime オブジェクトであることを確認し、タイムゾーンを設定
+    if isinstance(start_date, datetime):
+        start_date_jst = start_date.astimezone(jst)
+    elif isinstance(start_date, date):
+        # date オブジェクトから datetime オブジェクトを作成（時間は 00:00 とする）
+        start_date_jst = datetime.combine(start_date, time(0, 0))
+        start_date_jst = jst.localize(start_date_jst)
+    else:
+        raise ValueError("start_date は datetime または date オブジェクトでなければなりません")
+
+    if isinstance(end_date, datetime):
+        end_date_jst = end_date.astimezone(jst)
+    elif isinstance(end_date, date):
+        # date オブジェクトから datetime オブジェクトを作成（時間は 00:00 とする）
+        end_date_jst = datetime.combine(end_date, time(0, 0))
+        end_date_jst = jst.localize(end_date_jst)
+    else:
+        raise ValueError("end_date は datetime または date オブジェクトでなければなりません")
+
+    # 日付を ISO 8601 形式の文字列に変換
+    start_date_iso = start_date_jst.isoformat()
+    end_date_iso = end_date_jst.isoformat()
+
+    # データを JSON 形式にして保存
     period_data = {
         "task_name": task_name,
         "task_duration": task_duration,
-        "start_date": start_date.strftime("%Y-%m-%d"),
-        "end_date": end_date.strftime("%Y-%m-%d"),
-        "sleep_hours": sleep_hours,
-        "meal_hours": meal_hours,
-        "commute_hours": commute_hours
+        "start_date": start_date_iso,
+        "end_date": end_date_iso,
+       
     }
-    with open("selected_period.json", "w") as f:
-        json.dump(period_data, f)
+
+    # JSON ファイルに保存
+    with open('selected_period.json', 'w') as file:
+        json.dump(period_data, file, ensure_ascii=False, indent=4)
 
 def load_selected_period():
     with open("selected_period.json", "r") as f:
         period_data = json.load(f)
-        japan_tz = pytz.timezone('Asia/Tokyo')
-        start_date = datetime.strptime(period_data["start_date"], "%Y-%m-%d")
-        end_date = datetime.strptime(period_data["end_date"], "%Y-%m-%d")
-        start_time = japan_tz.localize(start_date)
-        end_time = japan_tz.localize(end_date)
+        
+        # ISO 8601形式の文字列をdatetimeオブジェクトに変換
+        start_date = datetime.fromisoformat(period_data["start_date"])
+        end_date = datetime.fromisoformat(period_data["end_date"])
+        
+        # 既にタイムゾーン情報が含まれているので、JSTに変換する必要はない
+        # そのまま使用する
+        # JSTに変換する場合（必要ならコメントアウトを解除してください）
+        # japan_tz = pytz.timezone('Asia/Tokyo')
+        # start_time = start_date.astimezone(japan_tz)
+        # end_time = end_date.astimezone(japan_tz)
+        
+        # JSTに変換せず、そのまま使用する場合
+        start_time = start_date
+        end_time = end_date
+        
+        # その他のデータの取得
         task_name = period_data.get("task_name", 0)
         sleep_hours = period_data.get("sleep_hours", 0)
         meal_hours = period_data.get("meal_hours", 0)
         commute_hours = period_data.get("commute_hours", 0)
+        
         return task_name, start_time, end_time, sleep_hours, meal_hours, commute_hours
     
     
@@ -151,40 +191,60 @@ def process_period_data():
         return free_hours, total_duration_hours, sum_others, total_hours
     
 def get_free_times(start_time, end_time, calendar_id=email):
+    
+  # 空き時間のリスト
+    free_times = []
+  # JST タイムゾーンを設定
     jst = pytz.timezone('Asia/Tokyo')
     
-# request_bodyの作成
+    # 日本時間からUTCに変換(googlecalendarapiがutcじゃないと読み取らないらしい)
+    start_time_utc = start_time.astimezone(pytz.UTC)
+    end_time_utc = end_time.astimezone(pytz.UTC)
+    print(f"Request Body: {start_time_utc}")  # デバッグ用
+    # リクエストのボディを作成
     request_body = {
-     "timeMin": start_time.isoformat(),
-     "timeMax": end_time.isoformat(),
-     "timeZone": "Asia/Tokyo",
-     "items": [{"id": calendar_id}]
-}
+        "timeMin": start_time_utc.isoformat(),
+        "timeMax": end_time_utc.isoformat(),
+        "timeZone": "Asia/Tokyo",  # レスポンスのタイムゾーン
+        "items": [{"id": calendar_id}]
+    }
+    
+    print(f"Request Body: {request_body}")  # デバッグ用
     
     # freebusyリクエストを送信
     freebusy_result = service.freebusy().query(body=request_body).execute()
-    
+
     busy_times = freebusy_result['calendars'][calendar_id]['busy']
-    
-    # 空き時間を計算
-    free_times = []
-    last_end_time = start_time
-    
+
+      # 予定のある時間帯を計算
+    busy_periods = []
     for busy_period in busy_times:
-        busy_start = datetime.fromisoformat(busy_period['start'].replace('Z', '+00:00')).astimezone(jst)
-        busy_end = datetime.fromisoformat(busy_period['end'].replace('Z', '+00:00')).astimezone(jst)
-        last_end_time = last_end_time.astimezone(jst)
+        start = busy_period['start']
+        end = busy_period['end']
         
-        if last_end_time < busy_start:
-            free_times.append((last_end_time, busy_start))
+        # 日本時間に変換
+        start_time_jst = datetime.fromisoformat(start).astimezone(jst)
+        end_time_jst = datetime.fromisoformat(end).astimezone(jst)
         
-        if busy_end > last_end_time:
-            last_end_time = busy_end
-    
-    if last_end_time < end_time:
-        free_times.append((last_end_time, end_time))
- 
+        busy_periods.append((start_time_jst, end_time_jst))
+
+    # 予定のない時間帯を計算
+    busy_periods.sort()  # 予定のある時間帯をソート
+    current_start = start_time
+
+    for busy_start, busy_end in busy_periods:
+        # 現在の空き時間の終了が予定の開始より前であれば、その間が空き時間
+        if busy_start > current_start:
+            free_times.append((current_start, busy_start))
+        # 現在の空き時間の開始を予定の終了時間に更新
+        current_start = max(current_start, busy_end)
+
+    # 最後の空き時間を追加
+    if current_start < end_time:
+        free_times.append((current_start, end_time))
+
+    # 空き時間を出力
     for free_start, free_end in free_times:
-     print(f"空き時間: {free_start} から {free_end}")
-    
-    
+        print(f"空いている時間帯: start_time: {free_start} から end_time: {free_end}")
+
+    return free_times
