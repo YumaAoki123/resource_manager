@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import os
 from datetime import datetime, timedelta, timezone
 import pytz
-
+import math
 # タスクを保存するためのリスト
 tasks = []
 load_dotenv()
@@ -220,62 +220,42 @@ def create_event_window():
     event_details_label.grid(pady=20, padx=20)
 
 
+    def get_selected_time_ranges():
+        # 選択された時間範囲を取得
+        start_time = start_slider.get()
+        end_time = end_slider.get()
 
-    def get_selected_times():
-        # 各時間帯の選択された開始時刻と終了時刻を取得
-        sleep_start = sleep_start_combobox.get()
-        sleep_end = sleep_end_combobox.get()
+        # 終了時間が開始時間より前の場合の処理（24時間表現にする）
+        if end_time < start_time:
+            end_time += 24
 
-        meal_start = meal_start_combobox.get()
-        meal_end = meal_end_combobox.get()
+        # 選択された時間範囲を表示
+        print(f"指定時間帯: {start_time % 24:02d}:00 - {end_time % 24:02d}:00")
 
-        commute_start = commute_start_combobox.get()
-        commute_end = commute_end_combobox.get()
 
-        # 選択された時間を表示
-        print(f"睡眠時間帯: {sleep_start} - {sleep_end}")
-        print(f"食事時間帯: {meal_start} - {meal_end}")
-        print(f"通勤時間帯: {commute_start} - {commute_end}")     
-        
+            # 時間帯のラベル
+    range_label = ttk.Label(event_window, text="タスク追加時間帯")
+    range_label.grid(row=0, column=0, columnspan=3, padx=10, pady=5)
 
-    # 時刻リストを作成 (1時間ごと)
-    time_options = [f"{hour:02d}:00" for hour in range(24)]
+    # 開始時間のスライダー
+    start_slider = tk.Scale(event_window, from_=0, to=23, orient=tk.HORIZONTAL, label="開始時間")
+    start_slider.grid(row=1, column=0, columnspan=3, padx=10, pady=5)
 
-    # 睡眠時間帯のコンボボックス
-    ttk.Label(event_window, text="睡眠時間帯").grid(row=0, column=0, padx=10, pady=5)
-    sleep_start_combobox = ttk.Combobox(event_window, values=time_options)
-    sleep_start_combobox.grid(row=1, column=0, padx=10, pady=5)
-    sleep_start_combobox.current(0)
+    # 終了時間のスライダー
+    end_slider = tk.Scale(event_window, from_=0, to=23, orient=tk.HORIZONTAL, label="終了時間")
+    end_slider.grid(row=2, column=0, columnspan=3, padx=10, pady=5)
 
-    sleep_end_combobox = ttk.Combobox(event_window, values=time_options)
-    sleep_end_combobox.grid(row=1, column=1, padx=10, pady=5)
-    sleep_end_combobox.current(0)
+    # 選択した時間範囲を取得するボタン
+    select_button = ttk.Button(event_window, text="Select", command=get_selected_time_ranges)
+    select_button.grid(row=3, column=0, columnspan=3, pady=20)
 
-    # 食事時間帯のコンボボックス
-    ttk.Label(event_window, text="食事時間帯").grid(row=2, column=0, padx=10, pady=5)
-    meal_start_combobox = ttk.Combobox(event_window, values=time_options)
-    meal_start_combobox.grid(row=3, column=0, padx=10, pady=5)
-    meal_start_combobox.current(0)
 
-    meal_end_combobox = ttk.Combobox(event_window, values=time_options)
-    meal_end_combobox.grid(row=3, column=1, padx=10, pady=5)
-    meal_end_combobox.current(0)
+    # 選択した時間範囲を取得するボタン
+    select_button = ttk.Button(event_window, text="Select", command=get_selected_time_ranges)
+    select_button.grid(row=7, column=0, columnspan=2, pady=20)
 
-    # 通勤時間帯のコンボボックス
-    ttk.Label(event_window, text="通勤時間帯").grid(row=4, column=0, padx=10, pady=5)
-    commute_start_combobox = ttk.Combobox(event_window, values=time_options)
-    commute_start_combobox.grid(row=5, column=0, padx=10, pady=5)
-    commute_start_combobox.current(0)
 
-    commute_end_combobox = ttk.Combobox(event_window, values=time_options)
-    commute_end_combobox.grid(row=5, column=1, padx=10, pady=5)
-    commute_end_combobox.current(0)
-
-    # ボタンを作成
-    select_button = ttk.Button(event_window, text="Select", command=get_selected_times)
-    select_button.grid(row=6, column=0, columnspan=2, pady=20)
-
-# 文字列をdatetimeオブジェクトに変換
+    # 文字列をdatetimeオブジェクトに変換
     start_time = datetime.fromisoformat(task['start_date'])
     end_time = datetime.fromisoformat(task['end_date'])
  
@@ -296,9 +276,62 @@ def create_event_window():
        
     event_window.mainloop()
 
+class CircularSlider(tk.Canvas):
+    def __init__(self, parent, size=200, start_angle=0, end_angle=360, **kwargs):
+        super().__init__(parent, width=size, height=size, **kwargs)
+        self.size = size
+        self.start_angle = start_angle
+        self.end_angle = end_angle
+        self.radius = size // 2 - 20
+        self.center = size // 2
+        self.angle = 0
+        self.create_circle()
 
+        self.bind("<B1-Motion>", self.update_angle)
+        self.bind("<Button-1>", self.update_angle)
 
+    def create_circle(self):
+        self.create_oval(10, 10, self.size - 10, self.size - 10, outline="gray")
+        self.handle = self.create_oval(
+            self.center - 10, self.center - self.radius - 10,
+            self.center + 10, self.center - self.radius + 10,
+            fill="blue"
+        )
 
+    def update_angle(self, event):
+        x, y = event.x - self.center, event.y - self.center
+        angle = math.degrees(math.atan2(-y, x)) % 360
+
+        if self.start_angle <= angle <= self.end_angle:
+            self.angle = angle
+            self.move_handle()
+
+    def move_handle(self):
+        angle_rad = math.radians(self.angle)
+        x = self.center + self.radius * math.cos(angle_rad)
+        y = self.center - self.radius * math.sin(angle_rad)
+        self.coords(self.handle, x - 10, y - 10, x + 10, y + 10)
+
+    def get_time(self):
+        # Convert angle to time (0-23 hours)
+        hour = int((self.angle / 360) * 24)
+        return hour
+
+def show_selected_time():
+    hour = slider.get_time()
+    print(f"Selected time: {hour}:00")
+
+root = tk.Tk()
+root.title("円形スライダー")
+root.geometry("300x350")
+
+slider = CircularSlider(root, size=250)
+slider.pack(pady=20)
+
+select_button = tk.Button(root, text="Select Time", command=show_selected_time)
+select_button.pack(pady=10)
+
+root.mainloop()
 # GUIのセットアップ
 app = ctk.CTk()
 app.title("resource_manager")
@@ -311,6 +344,7 @@ notebook.grid(row=0, column=0, sticky="nsew")
 # ウィンドウの列と行の比率を設定
 app.grid_columnconfigure(0, weight=1)
 app.grid_rowconfigure(0, weight=1)
+
 
 # タスク管理タブ
 task_management_frame = ctk.CTkFrame(notebook)
