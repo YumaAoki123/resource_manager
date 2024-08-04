@@ -1,3 +1,6 @@
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 from tkcalendar import DateEntry
@@ -19,6 +22,26 @@ email = os.getenv('EMAIL')
 
 SELECTED_PERIOD_FILE = 'selected_period.json'
 DATA_FILE = 'tasks.json'
+
+# タスクデータをファイルから読み込む関数
+def load_tasks():
+    global tasks
+    try:
+        with open(DATA_FILE, "r") as f:
+            tasks = json.load(f)
+    except FileNotFoundError:
+        tasks = []
+
+# サービスアカウントキーファイルのパスを指定する
+SERVICE_ACCOUNT_FILE = '/resource_manager/creditials.json'
+
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
+
+# ファイルパスを引数として渡す
+credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+
+# Google Calendar API を使うための準備
+service = build('calendar', 'v3', credentials=credentials)
 
 # タスクデータをファイルに保存する関数
 def save_tasks():
@@ -189,13 +212,6 @@ def show_task_details(event):
 
         details_label.configure(text=details_text)
 
-       
-
-
-
-
-
-
 
 # イベント作成ウィンドウを作成する関数
 def create_event_window():
@@ -217,42 +233,74 @@ def create_event_window():
     
 
     event_details_label = ctk.CTkLabel(event_window, text=event_details_text, justify="left")
-    event_details_label.grid(pady=20, padx=20)
+    event_details_label.grid(row=10, pady=20, padx=20)
+
+    def get_selected_min_duration():
+    # Entryの値を取得し、整数に変換
+        min_duration = min_duration_entry.get()
+        if min_duration.isdigit():
+            print(f"取得した最小空き時間: {min_duration} 分")
+            return int(min_duration)
+        else:
+            print("無効な入力です。整数値を入力してください。")
+            return None
+        
+
+    min_duration_label = ttk.Label(event_window, text="最小空き時間 (分):")
+    min_duration_label.grid(row=0, column=0, padx=10, pady=5)
+
+    min_duration_entry = ttk.Entry(event_window)
+    min_duration_entry.grid(row=0, column=1, padx=10, pady=5)
+    min_duration_entry.insert(0, "30")  # デフォルト値を設定
 
 
     def get_selected_time_ranges():
         # 選択された時間範囲を取得
-        start_time = start_slider.get()
-        end_time = end_slider.get()
-
-        # 終了時間が開始時間より前の場合の処理（24時間表現にする）
-        if end_time < start_time:
-            end_time += 24
+        time_ranges = []
+        for start_combobox, end_combobox in time_range_comboboxes:
+            start_time = start_combobox.get()
+            end_time = end_combobox.get()
+            if start_time != "指定しない" and end_time != "指定しない":
+                time_ranges.append((start_time, end_time))
 
         # 選択された時間範囲を表示
-        print(f"指定時間帯: {start_time % 24:02d}:00 - {end_time % 24:02d}:00")
+        for start, end in time_ranges:
+            print(f"指定時間帯: {start} - {end}")
+        
+        return time_ranges
 
+    # 時刻リストを作成 (1時間ごと) + "指定しない" オプション
+    time_options = ["指定しない"] + [f"{hour:02d}:00" for hour in range(24)]
 
-            # 時間帯のラベル
-    range_label = ttk.Label(event_window, text="タスク追加時間帯")
-    range_label.grid(row=0, column=0, columnspan=3, padx=10, pady=5)
+    # タスクを埋め込んでいい時間帯のコンボボックス
+    time_range_comboboxes = []
 
-    # 開始時間のスライダー
-    start_slider = tk.Scale(event_window, from_=0, to=23, orient=tk.HORIZONTAL, label="開始時間")
-    start_slider.grid(row=1, column=0, columnspan=3, padx=10, pady=5)
+    def add_time_range():
+        row_index = len(time_range_comboboxes) + 1
 
-    # 終了時間のスライダー
-    end_slider = tk.Scale(event_window, from_=0, to=23, orient=tk.HORIZONTAL, label="終了時間")
-    end_slider.grid(row=2, column=0, columnspan=3, padx=10, pady=5)
+        # 時間帯ラベル
+        range_label = ttk.Label(event_window, text=f"時間帯 {row_index}")
+        range_label.grid(row=row_index, column=0, padx=10, pady=5)
 
-    # 選択した時間範囲を取得するボタン
-    select_button = ttk.Button(event_window, text="Select", command=get_selected_time_ranges)
-    select_button.grid(row=3, column=0, columnspan=3, pady=20)
+        # 開始時間のコンボボックス
+        start_combobox = ttk.Combobox(event_window, values=time_options)
+        start_combobox.grid(row=row_index, column=1, padx=10, pady=5)
+        start_combobox.current(0)
 
+        # 終了時間のコンボボックス
+        end_combobox = ttk.Combobox(event_window, values=time_options)
+        end_combobox.grid(row=row_index, column=2, padx=10, pady=5)
+        end_combobox.current(0)
 
-    # 選択した時間範囲を取得するボタン
-    select_button = ttk.Button(event_window, text="Select", command=get_selected_time_ranges)
-    select_button.grid(row=7, column=0, columnspan=2, pady=20)
+        time_range_comboboxes.append((start_combobox, end_combobox))
+
+    # 初期の時間範囲を追加
+    add_time_range()
+
+    # 時間範囲を追加するボタン
+    add_range_button = ttk.Button(event_window, text="時間範囲を追加", command=add_time_range)
+    add_range_button.grid(row=7, column=0, columnspan=3, pady=10)
+
 
 
     # 文字列をdatetimeオブジェクトに変換
@@ -270,68 +318,171 @@ def create_event_window():
     free_times_label = ctk.CTkLabel(event_window, text=free_times_text, justify="left")
     free_times_label.grid(pady=20, padx=20)
 
-    # Googleカレンダーに追加するボタン
-    add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加")
-    add_event_button.grid(pady=20)
+
+
+        # タイムゾーンを設定
+    jst = pytz.timezone('Asia/Tokyo')
+
+    # 選択された時間帯を毎日の範囲に合わせて日付を補完
+    def combine_time_with_date(time_str, base_date):
+        time = datetime.strptime(time_str, "%H:%M").time()
+        naive_datetime = datetime.combine(base_date, time)
+        return jst.localize(naive_datetime)
+    
+    # 選択された時間帯と空いている時間帯の重なりを計算
+    def compare_time_ranges(selected_ranges, free_times, min_duration):
+        task_times = []
+        min_duration = get_selected_min_duration()
+        
+ # min_durationをtimedeltaに変換
+        min_duration_td = timedelta(minutes=min_duration)
+        # 各選択された時間帯について処理
+        for free_start, free_end in free_times:
+            # 空いている時間の開始日を基準日として使用
+            current_date = free_start.date()
+            next_date = current_date + timedelta(days=1)
+
+            for selected_start_str, selected_end_str in selected_ranges:
+                # 現在の日付と次の日付で選択された時間帯を補完
+                selected_start_today = combine_time_with_date(selected_start_str, current_date)
+                selected_end_today = combine_time_with_date(selected_end_str, current_date)
+
+                # 翌日の選択された時間帯を補完
+                selected_start_tomorrow = combine_time_with_date(selected_start_str, next_date)
+                selected_end_tomorrow = combine_time_with_date(selected_end_str, next_date)
+
+                # 今日の日付での重なりを確認
+                if selected_start_today < free_end and selected_end_today > free_start:
+                    task_start = max(selected_start_today, free_start)
+                    task_end = min(selected_end_today, free_end)
+                    if task_end - task_start >= min_duration_td:
+                       task_times.append((task_start, task_end))
+
+                # 翌日の日付での重なりを確認
+                if selected_start_tomorrow < free_end and selected_end_tomorrow > free_start:
+                    task_start = max(selected_start_tomorrow, free_start)
+                    task_end = min(selected_end_tomorrow, free_end)
+                    if task_end - task_start >= min_duration_td:
+                       task_times.append((task_start, task_end))
+
+        return task_times
+    
+   
+
+    def show_available_task_times():
+        selected_ranges = get_selected_time_ranges()
+        # ここで free_times を取得
+        free_times = get_free_times(start_time, end_time, calendar_id=email)
+        min_duration = get_selected_min_duration()
+        available_task_times = compare_time_ranges(selected_ranges, free_times, min_duration)
+
+                # 結果を出力
+        for task_start, task_end in available_task_times:
+            print(f"タスクを実行可能な時間帯: {task_start} から {task_end}")
+
+    def check_available_time(task_times, task_duration_minutes):
+            # タスクの所要時間を timedelta に変換
+            task_duration_minutes = task['task_duration']
+            task_duration = timedelta(minutes=task_duration_minutes)
+
+            # 空いている時間帯の合計時間を計算
+            total_available_time = timedelta()
+            for start, end in task_times:
+                total_available_time += end - start
+            
+            # 時間が足りるかどうかを確認
+            if total_available_time >= task_duration:
+                print(f"時間が足りてます")
+            else:
+                time_needed = task_duration - total_available_time
+                print(f"時間が足りません。{time_needed} が不足しています")
+            
+    def on_check_button_click():
+        # ボタンがクリックされたときに呼ばれる関数
+        task_duration_minutes = task['task_duration']
+        selected_ranges = get_selected_time_ranges()
+        min_duration = get_selected_min_duration
+        task_times = compare_time_ranges(selected_ranges, free_times, min_duration)
+        result = check_available_time(task_times, task_duration_minutes)
+        print(result)
+    # 選択した時間範囲を取得するボタン
+    select_button = ttk.Button(event_window, text="条件の時間帯とマッチする空いている時間を抽出", command=show_available_task_times)
+    select_button.grid(row=8, column=0, columnspan=3, pady=20)
+      # 選択した時間範囲を取得するボタン
+    select_button = ttk.Button(event_window, text="チェック", command=on_check_button_click)
+    select_button.grid(row=9, column=0, columnspan=3, pady=20)
+
+    def add_events_to_google_calendar(service, calendar_id, task_times, task_name, color_id='2'):
+        """Google Calendarにイベントを追加します。"""
+        for start_time, end_time in task_times:
+            event = {
+                'summary': task_name,
+                'start': {
+                    'dateTime': start_time.isoformat(),
+                    'timeZone': 'Asia/Tokyo',
+                },
+                'end': {
+                    'dateTime': end_time.isoformat(),
+                    'timeZone': 'Asia/Tokyo',
+                },
+                  'colorId': color_id,  # イベントの色を設定
+            }
+            try:
+                event_result = service.events().insert(calendarId=calendar_id, body=event).execute()
+                print(f"Event created: {event_result['htmlLink']}")
+            except HttpError as error:
+                print(f'An error occurred: {error}')
+
+    def fill_available_time(task_times, task_duration_minutes):
+        task_duration_minutes = task['task_duration']
+        """空き時間にタスクを埋め込む時間帯を決定します。"""
+        task_duration = timedelta(minutes=task_duration_minutes)
+        remaining_duration = task_duration
+        filled_task_times = []
+        
+        for start, end in task_times:
+            available_duration = end - start
+            
+            if remaining_duration <= timedelta(0):
+                break
+            
+            if available_duration >= remaining_duration:
+                # 空き時間にタスクを埋め込む
+                filled_task_times.append((start, start + remaining_duration))
+                remaining_duration -= available_duration
+            else:
+                # 部分的にタスクを埋め込む
+                filled_task_times.append((start, end))
+                remaining_duration -= available_duration
+        
+        if remaining_duration <= timedelta(0):
+            return filled_task_times
+        else:
+            print(f"タスクを完了するための時間が不足しています: {remaining_duration.total_seconds() / 60:.2f} 分不足しています")
+            return []          
+        
+    def on_insert_button_click():
+        selected_ranges = get_selected_time_ranges()
+        min_duration = get_selected_min_duration()
+        task_times = compare_time_ranges(selected_ranges, free_times, min_duration)
+        task_duration_minutes = task['task_duration']
+        
+       # 空いている時間帯と所要時間を比較し、タスクを埋め込む
+        filled_task_times = fill_available_time(task_times, task_duration_minutes)
        
+        calendar_id = email  # 使用するカレンダーID
+        if filled_task_times:
+         add_events_to_google_calendar(service, calendar_id, filled_task_times, task['task_name'])
+
+
+    # Googleカレンダーに追加するボタン
+    add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加", command=on_insert_button_click)
+    add_event_button.grid(row=10, pady=20)
+    # イベントをGoogle Calendarに追加
+    
+   
     event_window.mainloop()
 
-class CircularSlider(tk.Canvas):
-    def __init__(self, parent, size=200, start_angle=0, end_angle=360, **kwargs):
-        super().__init__(parent, width=size, height=size, **kwargs)
-        self.size = size
-        self.start_angle = start_angle
-        self.end_angle = end_angle
-        self.radius = size // 2 - 20
-        self.center = size // 2
-        self.angle = 0
-        self.create_circle()
-
-        self.bind("<B1-Motion>", self.update_angle)
-        self.bind("<Button-1>", self.update_angle)
-
-    def create_circle(self):
-        self.create_oval(10, 10, self.size - 10, self.size - 10, outline="gray")
-        self.handle = self.create_oval(
-            self.center - 10, self.center - self.radius - 10,
-            self.center + 10, self.center - self.radius + 10,
-            fill="blue"
-        )
-
-    def update_angle(self, event):
-        x, y = event.x - self.center, event.y - self.center
-        angle = math.degrees(math.atan2(-y, x)) % 360
-
-        if self.start_angle <= angle <= self.end_angle:
-            self.angle = angle
-            self.move_handle()
-
-    def move_handle(self):
-        angle_rad = math.radians(self.angle)
-        x = self.center + self.radius * math.cos(angle_rad)
-        y = self.center - self.radius * math.sin(angle_rad)
-        self.coords(self.handle, x - 10, y - 10, x + 10, y + 10)
-
-    def get_time(self):
-        # Convert angle to time (0-23 hours)
-        hour = int((self.angle / 360) * 24)
-        return hour
-
-def show_selected_time():
-    hour = slider.get_time()
-    print(f"Selected time: {hour}:00")
-
-root = tk.Tk()
-root.title("円形スライダー")
-root.geometry("300x350")
-
-slider = CircularSlider(root, size=250)
-slider.pack(pady=20)
-
-select_button = tk.Button(root, text="Select Time", command=show_selected_time)
-select_button.pack(pady=10)
-
-root.mainloop()
 # GUIのセットアップ
 app = ctk.CTk()
 app.title("resource_manager")
@@ -381,32 +532,6 @@ cal_end_label.grid(row=3, column=0, padx=10, pady=5, sticky="w")
 cal_end = DateEntry(task_management_frame, selectmode='day', year=2024, month=7, day=1, width=12, background='darkblue', foreground='white', borderwidth=2)
 cal_end.grid(row=3, column=1, padx=10, pady=5, sticky="w")
 
-search_button = ctk.CTkButton(task_management_frame, text="Save Selected Period")
-search_button.grid(row=4, column=0, padx=10, pady=5, sticky="w")
-
-result_label = ctk.CTkLabel(task_management_frame, text="Free time: ")
-result_label.grid(row=5, column=0, columnspan=2, pady=10, sticky="ew")
-
-total_hours_label = ctk.CTkLabel(task_management_frame, text="Total hours: ")
-total_hours_label.grid(row=6, column=0, columnspan=2, pady=10, sticky="ew")
-
-# ユーザー入力用のテキストエリア
-sleep_hours_label = ctk.CTkLabel(task_management_frame, text="Sleep Hours:")
-sleep_hours_label.grid(row=7, column=0, padx=10, pady=5, sticky="w")
-sleep_hours_entry = ctk.CTkEntry(task_management_frame)
-sleep_hours_entry.grid(row=7, column=1, padx=10, pady=5, sticky="w")
-
-meal_hours_label = ctk.CTkLabel(task_management_frame, text="Meal Hours:")
-meal_hours_label.grid(row=8, column=0, padx=10, pady=5, sticky="w")
-meal_hours_entry = ctk.CTkEntry(task_management_frame)
-meal_hours_entry.grid(row=8, column=1, padx=10, pady=5, sticky="w")
-
-commute_hours_label = ctk.CTkLabel(task_management_frame, text="Commute Hours:")
-commute_hours_label.grid(row=9, column=0, padx=10, pady=5, sticky="w")
-commute_hours_entry = ctk.CTkEntry(task_management_frame)
-commute_hours_entry.grid(row=9, column=1, padx=10, pady=5, sticky="w")
-
-
 
 # タスク一覧タブ
 task_list_frame = ctk.CTkFrame(notebook)
@@ -421,12 +546,11 @@ task_list_frame.grid_rowconfigure(1, weight=1)
 task_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)  # ここを修正
 task_listbox.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
-
 delete_button = ctk.CTkButton(task_list_frame, text="Delete Task")
 delete_button.grid(row=1, column=0, pady=5, sticky="ew")
 
 # イベント作成ウィンドウを開くボタン
-create_event_button = ctk.CTkButton(task_list_frame, text="Create Event", command=create_event_window)
+create_event_button = ctk.CTkButton(task_list_frame, text="カレンダーに埋め込む", command=create_event_window)
 create_event_button.grid(row=2, column=0, pady=5, sticky="ew")
 
 # タスク詳細を表示するラベル
@@ -470,8 +594,6 @@ task_listbox.bind('<Double-1>', show_task_details)
 # タスクデータをロードして表示
 load_tasks()
 update_task_listbox()
-
-
 
 # メインループの開始
 app.mainloop()
