@@ -231,9 +231,8 @@ def create_event_window():
                          f"開始日: {task['start_date']}\n" \
                          f"終了日: {task['end_date']}\n"
     
-
     event_details_label = ctk.CTkLabel(event_window, text=event_details_text, justify="left")
-    event_details_label.grid(row=10, pady=20, padx=20)
+    event_details_label.grid(row=0, pady=20, padx=20)
 
     def get_selected_min_duration():
     # Entryの値を取得し、整数に変換
@@ -246,11 +245,11 @@ def create_event_window():
             return None
         
 
-    min_duration_label = ttk.Label(event_window, text="最小空き時間 (分):")
-    min_duration_label.grid(row=0, column=0, padx=10, pady=5)
+    min_duration_label = ctk.CTkLabel(event_window, text="最小空き時間 (分):")
+    min_duration_label.grid(row=7, column=0, padx=10, pady=5)
 
-    min_duration_entry = ttk.Entry(event_window)
-    min_duration_entry.grid(row=0, column=1, padx=10, pady=5)
+    min_duration_entry = ctk.CTkEntry(event_window)
+    min_duration_entry.grid(row=7, column=1, padx=10, pady=5)
     min_duration_entry.insert(0, "30")  # デフォルト値を設定
 
 
@@ -299,7 +298,7 @@ def create_event_window():
 
     # 時間範囲を追加するボタン
     add_range_button = ttk.Button(event_window, text="時間範囲を追加", command=add_time_range)
-    add_range_button.grid(row=7, column=0, columnspan=3, pady=10)
+    add_range_button.grid(row=6, column=0, columnspan=3, pady=10)
 
 
 
@@ -311,12 +310,12 @@ def create_event_window():
     # 空き時間を取得
     free_times = get_free_times(start_time, end_time, calendar_id=email)
 
-    # 空き時間を表示（または他の処理に利用）
-    free_times_text = "空き時間:\n" + "\n".join(
-        [f"開始: {start} 終了: {end}" for start, end in free_times]
-    )
-    free_times_label = ctk.CTkLabel(event_window, text=free_times_text, justify="left")
-    free_times_label.grid(pady=20, padx=20)
+        #空き時間を表示（または他の処理に利用）
+    # free_times_text = "空き時間:\n" + "\n".join(
+    #     [f"開始: {start} 終了: {end}" for start, end in free_times]
+    # )
+    # free_times_label = ctk.CTkLabel(event_window, text=free_times_text, justify="left")
+    # free_times_label.grid(pady=20, padx=20)
 
 
 
@@ -369,16 +368,16 @@ def create_event_window():
     
    
 
-    def show_available_task_times():
-        selected_ranges = get_selected_time_ranges()
-        # ここで free_times を取得
-        free_times = get_free_times(start_time, end_time, calendar_id=email)
-        min_duration = get_selected_min_duration()
-        available_task_times = compare_time_ranges(selected_ranges, free_times, min_duration)
+    # def show_available_task_times():
+    #     selected_ranges = get_selected_time_ranges()
+    #     # ここで free_times を取得
+    #     free_times = get_free_times(start_time, end_time, calendar_id=email)
+    #     min_duration = get_selected_min_duration()
+    #     available_task_times = compare_time_ranges(selected_ranges, free_times, min_duration)
 
-                # 結果を出力
-        for task_start, task_end in available_task_times:
-            print(f"タスクを実行可能な時間帯: {task_start} から {task_end}")
+    #             # 結果を出力
+    #     for task_start, task_end in available_task_times:
+    #         print(f"タスクを実行可能な時間帯: {task_start} から {task_end}")
 
     def check_available_time(task_times, task_duration_minutes):
             # タスクの所要時間を timedelta に変換
@@ -396,26 +395,95 @@ def create_event_window():
             else:
                 time_needed = task_duration - total_available_time
                 print(f"時間が足りません。{time_needed} が不足しています")
+
+    def calculate_percentage(task_duration, total_free_time):
+        return (task_duration / total_free_time) * 100
+
+    def format_duration(minutes):
+        hours = minutes // 60
+        minutes = minutes % 60
+        return f"{hours}h {minutes}m"
+
+    def update_graph(ax, task_duration_percentage, total_free_time_formatted, task_duration_formatted, time_difference_formatted, time_difference):
+    # グラフをクリア
+        ax.clear()
+
+        # タイトルとラベルを再設定
+        ax.set_title('Task vs. Free Time')
+        ax.set_ylabel('Free Time (%)')
+
+        # パーセントに基づいて色を選択
+        bar_color = 'green' if task_duration_percentage <= 100 else 'red'
+
+        # 空き時間とタスク時間を描画
+        ax.bar(['Free'], [100], color='lightgray', edgecolor='black', label=f'Free: {total_free_time_formatted}')  # 空き時間の背景
+        ax.bar(['Task'], [task_duration_percentage], color=bar_color, edgecolor='black', label=f'Task: {task_duration_formatted}')  # タスク時間のバー
+
+       
+            # 差分を示す点線を追加
+        if task_duration_percentage > 100:
+            ax.axhline(y=100, color='gray', linestyle='--', linewidth=1)
+            ax.text(0.5, 100 + 1, f'-{time_difference_formatted}', color='red', ha='center', va='bottom')
+        else:
+            ax.axhline(y=task_duration_percentage, color='gray', linestyle='--', linewidth=1)
+            ax.text(0.5, task_duration_percentage + 1, f'+{time_difference_formatted}', color='green', ha='center', va='bottom')
             
+        ax.set_ylim(0, max(100, task_duration_percentage + 10))  # y軸の範囲を設定
+        ax.legend(loc='upper right')
+
     def on_check_button_click():
         # ボタンがクリックされたときに呼ばれる関数
         task_duration_minutes = task['task_duration']
         selected_ranges = get_selected_time_ranges()
-        min_duration = get_selected_min_duration
+        min_duration = get_selected_min_duration()
         task_times = compare_time_ranges(selected_ranges, free_times, min_duration)
+
+        # 空き時間の合計を計算
+        total_free_time_minutes = sum((end - start).total_seconds() / 60 for start, end in task_times)
+        total_free_time_formatted = format_duration(total_free_time_minutes)
+
+        # タスク時間をパーセンテージに変換
+        task_duration_percentage = calculate_percentage(task_duration_minutes, total_free_time_minutes)
+        task_duration_formatted = format_duration(task_duration_minutes)
+
+        # 差分を計算
+        time_difference = total_free_time_minutes - task_duration_minutes
+        time_difference_formatted = format_duration(abs(time_difference))
+        difference_label_text = f"時間差: {time_difference_formatted} ({'不足' if time_difference < 0 else '余剰'})"
+
+        # グラフを更新
+        update_graph(ax, task_duration_percentage, total_free_time_formatted, task_duration_formatted, time_difference_formatted, time_difference)
+        canvas.draw()
+
         result = check_available_time(task_times, task_duration_minutes)
         print(result)
-    # 選択した時間範囲を取得するボタン
-    select_button = ttk.Button(event_window, text="条件の時間帯とマッチする空いている時間を抽出", command=show_available_task_times)
-    select_button.grid(row=8, column=0, columnspan=3, pady=20)
-      # 選択した時間範囲を取得するボタン
-    select_button = ttk.Button(event_window, text="チェック", command=on_check_button_click)
-    select_button.grid(row=9, column=0, columnspan=3, pady=20)
 
-    def add_events_to_google_calendar(service, calendar_id, task_times, task_name, color_id='2'):
+
+
+    # 初期状態のFigureを作成
+    fig, ax = plt.subplots(figsize=(4, 6))  # 縦棒グラフのためにサイズを調整
+    ax.set_title('Task vs. Free Time')
+    ax.set_ylabel('Free Time (%)')
+
+    # Figureをキャンバスに埋め込む
+    canvas = FigureCanvasTkAgg(fig, master=event_window)
+    canvas.draw()
+    canvas.get_tk_widget().grid(row=10, column=1, columnspan=3, padx=20, pady=10)  # ボタンの右側にグラフを表示
+
+    # 時間の差を表示するラベルを作成（初期は空）
+    difference_label = ctk.CTkLabel(event_window, text="")
+    difference_label.grid(row=11, column=1, padx=20, pady=5)
+
+    # 選択した時間範囲を取得するボタン
+    select_button = ctk.CTkButton(event_window, text="空き時間検索", command=on_check_button_click)
+    select_button.grid(row=9, column=0, pady=20)
+
+
+    def add_events_to_google_calendar(service, calendar_id, task_times, task_name, color_id='6'):
         """Google Calendarにイベントを追加します。"""
         for start_time, end_time in task_times:
             event = {
+
                 'summary': task_name,
                 'start': {
                     'dateTime': start_time.isoformat(),
@@ -469,18 +537,16 @@ def create_event_window():
         
        # 空いている時間帯と所要時間を比較し、タスクを埋め込む
         filled_task_times = fill_available_time(task_times, task_duration_minutes)
-       
+
         calendar_id = email  # 使用するカレンダーID
         if filled_task_times:
-         add_events_to_google_calendar(service, calendar_id, filled_task_times, task['task_name'])
+           add_events_to_google_calendar(service, calendar_id, filled_task_times, task['task_name'])
 
 
     # Googleカレンダーに追加するボタン
     add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加", command=on_insert_button_click)
-    add_event_button.grid(row=10, pady=20)
-    # イベントをGoogle Calendarに追加
-    
-   
+    add_event_button.grid(row=11, pady=20)
+
     event_window.mainloop()
 
 # GUIのセットアップ
