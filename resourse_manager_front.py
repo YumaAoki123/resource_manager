@@ -220,6 +220,13 @@ def create_event_window():
     event_window.title("イベント作成")
     event_window.geometry("800x500")
 
+        # ウィンドウ全体にグリッドを設定
+    event_window.grid_columnconfigure(0, weight=1)  # 左カラム
+    event_window.grid_columnconfigure(1, weight=3)  # 右カラムを大きくする
+    event_window.grid_rowconfigure(0, weight=1)
+    event_window.grid_rowconfigure(1, weight=1)
+
+
     selected_index = task_listbox.curselection()
     if selected_index:
         index = selected_index[0]
@@ -252,6 +259,43 @@ def create_event_window():
     min_duration_entry.grid(row=7, column=1, padx=10, pady=5)
     min_duration_entry.insert(0, "30")  # デフォルト値を設定
 
+    def get_selected_priority_label():
+        # 現在選択されているラジオボタンの値を取得
+        selected_value = priority_var.get()
+
+        # ラベルに応じたGoogleカレンダーのcolorIdを返す
+        if selected_value == "1":
+            return 1  # 優先度高
+        elif selected_value == "2":
+            return 2  # 優先度中
+        elif selected_value == "3":
+            return 3  # 優先度低
+        else:
+            return None  # 未選択
+
+    def on_priority_change():
+        # 優先度が変更されたときの処理
+        selected_color_id = get_selected_priority_label()
+        print(f"Selected Priority Color ID: {selected_color_id}")
+
+
+
+    # 優先度選択ラジオボタンの変数
+    priority_var = ctk.StringVar(value="1")  # デフォルトは中
+
+    # 優先度選択ラジオボタンの作成
+    priority_label = ctk.CTkLabel(event_window, text="優先度を選択:")
+    priority_label.grid(row=6, column=0, padx=10, pady=5)
+
+    priority_high = ctk.CTkRadioButton(event_window, text="高", variable=priority_var, value="1", command=on_priority_change)
+    priority_high.grid(row=6, column=1, padx=10, pady=5)
+
+    priority_medium = ctk.CTkRadioButton(event_window, text="中", variable=priority_var, value="2", command=on_priority_change)
+    priority_medium.grid(row=6, column=2, padx=10, pady=5)
+
+    priority_low = ctk.CTkRadioButton(event_window, text="低", variable=priority_var, value="3", command=on_priority_change)
+    priority_low.grid(row=6, column=3, padx=10, pady=5)
+
 
     def get_selected_time_ranges():
         # 選択された時間範囲を取得
@@ -279,16 +323,16 @@ def create_event_window():
 
         # 時間帯ラベル
         range_label = ttk.Label(event_window, text=f"時間帯 {row_index}")
-        range_label.grid(row=row_index, column=0, padx=10, pady=5)
+        range_label.grid(row=1+row_index, column=0, padx=10, pady=5)
 
         # 開始時間のコンボボックス
         start_combobox = ttk.Combobox(event_window, values=time_options)
-        start_combobox.grid(row=row_index, column=1, padx=10, pady=5)
+        start_combobox.grid(row=1+row_index, column=1, padx=10, pady=5)
         start_combobox.current(0)
 
         # 終了時間のコンボボックス
         end_combobox = ttk.Combobox(event_window, values=time_options)
-        end_combobox.grid(row=row_index, column=2, padx=10, pady=5)
+        end_combobox.grid(row=1+row_index, column=2, padx=10, pady=5)
         end_combobox.current(0)
 
         time_range_comboboxes.append((start_combobox, end_combobox))
@@ -298,7 +342,7 @@ def create_event_window():
 
     # 時間範囲を追加するボタン
     add_range_button = ttk.Button(event_window, text="時間範囲を追加", command=add_time_range)
-    add_range_button.grid(row=6, column=0, columnspan=3, pady=10)
+    add_range_button.grid(row=5, column=0, columnspan=3, pady=10)
 
 
 
@@ -449,7 +493,6 @@ def create_event_window():
         # 差分を計算
         time_difference = total_free_time_minutes - task_duration_minutes
         time_difference_formatted = format_duration(abs(time_difference))
-        difference_label_text = f"時間差: {time_difference_formatted} ({'不足' if time_difference < 0 else '余剰'})"
 
         # グラフを更新
         update_graph(ax, task_duration_percentage, total_free_time_formatted, task_duration_formatted, time_difference_formatted, time_difference)
@@ -461,14 +504,14 @@ def create_event_window():
 
 
     # 初期状態のFigureを作成
-    fig, ax = plt.subplots(figsize=(4, 6))  # 縦棒グラフのためにサイズを調整
+    fig, ax = plt.subplots(figsize=(3, 5))  # 縦棒グラフのためにサイズを調整
     ax.set_title('Task vs. Free Time')
     ax.set_ylabel('Free Time (%)')
 
     # Figureをキャンバスに埋め込む
     canvas = FigureCanvasTkAgg(fig, master=event_window)
     canvas.draw()
-    canvas.get_tk_widget().grid(row=10, column=1, columnspan=3, padx=20, pady=10)  # ボタンの右側にグラフを表示
+    canvas.get_tk_widget().grid(row=0, column=4, columnspan=3, padx=20, pady=10)  # ボタンの右側にグラフを表示
 
     # 時間の差を表示するラベルを作成（初期は空）
     difference_label = ctk.CTkLabel(event_window, text="")
@@ -479,7 +522,7 @@ def create_event_window():
     select_button.grid(row=9, column=0, pady=20)
 
 
-    def add_events_to_google_calendar(service, calendar_id, task_times, task_name, color_id='6'):
+    def add_events_to_google_calendar(service, calendar_id, task_times, task_name, color_id='selected_priority'):
         """Google Calendarにイベントを追加します。"""
         for start_time, end_time in task_times:
             event = {
@@ -534,13 +577,12 @@ def create_event_window():
         min_duration = get_selected_min_duration()
         task_times = compare_time_ranges(selected_ranges, free_times, min_duration)
         task_duration_minutes = task['task_duration']
-        
+        selected_priority = get_selected_priority_label()
        # 空いている時間帯と所要時間を比較し、タスクを埋め込む
         filled_task_times = fill_available_time(task_times, task_duration_minutes)
-
         calendar_id = email  # 使用するカレンダーID
         if filled_task_times:
-           add_events_to_google_calendar(service, calendar_id, filled_task_times, task['task_name'])
+           add_events_to_google_calendar(service, calendar_id, filled_task_times, task['task_name'],selected_priority)
 
 
     # Googleカレンダーに追加するボタン
@@ -609,7 +651,7 @@ task_list_frame.grid_columnconfigure(1, weight=3)  # 右カラムを大きくす
 task_list_frame.grid_rowconfigure(0, weight=1)
 task_list_frame.grid_rowconfigure(1, weight=1)
 
-task_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)  # ここを修正
+task_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)  
 task_listbox.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
 delete_button = ctk.CTkButton(task_list_frame, text="Delete Task")
