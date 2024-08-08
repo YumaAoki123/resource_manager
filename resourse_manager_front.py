@@ -14,6 +14,7 @@ import os
 from datetime import datetime, timedelta, timezone
 import pytz
 import math
+import uuid
 # タスクを保存するためのリスト
 tasks = []
 load_dotenv()
@@ -58,58 +59,58 @@ def load_tasks():
         tasks = []
 
 # タスクの所要時間と期間内の空き時間を比較するための関数。待ち時間に読み込み中のアニメーション。
-class LoadingAnimation:
-    def __init__(self, master):
-        self.master = master
-        self.canvas = tk.Canvas(master, width=50, height=50, bg='white', highlightthickness=0)
-        self.canvas.place(relx=0.5, rely=0.4, anchor='center')
-        self.arc = self.canvas.create_arc(10, 10, 40, 40, start=0, extent=150, fill='blue', outline='blue')
-        self.angle = 0
-        self.running = False
+# class LoadingAnimation:
+#     def __init__(self, master):
+#         self.master = master
+#         self.canvas = tk.Canvas(master, width=50, height=50, bg='white', highlightthickness=0)
+#         self.canvas.place(relx=0.5, rely=0.4, anchor='center')
+#         self.arc = self.canvas.create_arc(10, 10, 40, 40, start=0, extent=150, fill='blue', outline='blue')
+#         self.angle = 0
+#         self.running = False
 
-    def start(self):
-        if not self.running:
-            self.running = True
-            self._rotate()
+#     def start(self):
+#         if not self.running:
+#             self.running = True
+#             self._rotate()
 
-    def stop(self):
-        self.running = False
-        self.canvas.place_forget()  # アニメーションを非表示にする
+#     def stop(self):
+#         self.running = False
+#         self.canvas.place_forget()  # アニメーションを非表示にする
 
-    def _rotate(self):
-        if self.running:
-            self.angle = (self.angle + 5) % 360
-            self.canvas.delete(self.arc)
-            self.arc = self.canvas.create_arc(10, 10, 40, 40, start=self.angle, extent=150, fill='blue', outline='blue')
-            self.master.after(50, self._rotate)  # 更新間隔を調整
+#     def _rotate(self):
+#         if self.running:
+#             self.angle = (self.angle + 5) % 360
+#             self.canvas.delete(self.arc)
+#             self.arc = self.canvas.create_arc(10, 10, 40, 40, start=self.angle, extent=150, fill='blue', outline='blue')
+#             self.master.after(50, self._rotate)  # 更新間隔を調整
 
-def compare_hours(free_hours, task_duration):
-    # Tkinterのウィンドウを作成
-    window = ctk.CTk()
-    window.title("時間比較結果")
-    window.geometry("300x150")  # ウィンドウサイズの設定
-    # アニメーションウィジェットの作成
-    loading_animation = LoadingAnimation(window)
-    loading_animation.start()
+# def compare_hours(free_hours, task_duration):
+#     # Tkinterのウィンドウを作成
+#     window = ctk.CTk()
+#     window.title("時間比較結果")
+#     window.geometry("300x150")  # ウィンドウサイズの設定
+#     # アニメーションウィジェットの作成
+#     loading_animation = LoadingAnimation(window)
+#     loading_animation.start()
 
     
-    def show_result():
-        # 比較結果を判定し、ラベルのテキストと色を設定
-        if task_duration > free_hours:
-            shortage = task_duration - free_hours
-            message = f"時間が足りません\n不足時間: {shortage} 分"
-            label = ctk.CTkLabel(window, text=message, text_color="white", fg_color="red", font=("Arial", 12))
-        else:
-            message = "時間が足りています"
-            label = ctk.CTkLabel(window, text=message, text_color="white", fg_color="green", font=("Arial", 12))
+#     def show_result():
+#         # 比較結果を判定し、ラベルのテキストと色を設定
+#         if task_duration > free_hours:
+#             shortage = task_duration - free_hours
+#             message = f"時間が足りません\n不足時間: {shortage} 分"
+#             label = ctk.CTkLabel(window, text=message, text_color="white", fg_color="red", font=("Arial", 12))
+#         else:
+#             message = "時間が足りています"
+#             label = ctk.CTkLabel(window, text=message, text_color="white", fg_color="green", font=("Arial", 12))
         
-        label.pack(pady=20)
-        loading_animation.stop()  # アニメーションを停止
+#         label.pack(pady=20)
+#         loading_animation.stop()  # アニメーションを停止
 
-    # デモのため、ここで少し待つ（実際には処理をここに入れる）
-    window.after(2000, show_result)  # 2秒後に結果を表示
+#     # デモのため、ここで少し待つ（実際には処理をここに入れる）
+#     window.after(2000, show_result)  # 2秒後に結果を表示
     
-    window.mainloop()
+#     window.mainloop()
 
 
 
@@ -119,6 +120,8 @@ def add_task():
         task_duration = float(task_duration_entry.get())
         start_date = cal_start.get_date()
         end_date = cal_end.get_date()
+        # タスクに固有のIDを生成
+        task_id = str(uuid.uuid4())
   
 # もし元がdatetime.date型なら、datetime.datetime型に変換する
         start_date = datetime.combine(start_date, datetime.min.time())  # datetime.date -> datetime.datetime
@@ -134,6 +137,7 @@ def add_task():
         end_date_iso = end_date_jst.isoformat()
 
         task_info = {
+        "id": task_id,
         "task_name": task_name,
         "task_duration": task_duration,
         "start_date": start_date_iso,  # ISO形式の文字列に変換された日付
@@ -146,55 +150,56 @@ def add_task():
         update_task_listbox()  # Update task listbox to reflect the new task
         task_entry.delete(0, ctk.END)  # Clear the task entry field
         save_tasks()  # Save the updated task list to a file or database
-    
-        
-# タスクを削除する関数
-def delete_task():
-    selected_indices = task_listbox.curselection()
-    if not selected_indices:
-        messagebox.showwarning("Warning", "No task selected")
-        return
 
-    for index in selected_indices[::-1]:
-        task_listbox.delete(index)
-        del tasks[index]
-    save_tasks()
-
-# タスクリストボックスを更新する関数
 def update_task_listbox():
     task_listbox.delete(0, ctk.END)
     for task in tasks:
         print(f"Current task: {task}")  # デバッグ用の出力
         task_listbox.insert(ctk.END, f"{task['task_name']}")
+    
 
-def create_label(window, text, fg_color):
-    label = tk.Label(window, text=text, fg=fg_color, font=("Arial", 12))
-    label.grid(pady=10)
-    return label
+def delete_selected_task(service, calendar_id):
+    try:
+        # カレンダー内のイベントをリストアップ
+        events_result = service.events().list(calendarId=calendar_id).execute()
+        events = events_result.get('items', [])
+
+        if not events:
+            print("カレンダー内にイベントがありません。")
+        for event in events:
+            event_id = event.get('id')
+            event_title = event.get('summary', 'タイトルなし')
+            print(f"イベントID: {event_id}, イベントタイトル: {event_title}")
+
+        return events
+
+    except Exception as e:
+        print(f"イベントのリストアップ中にエラーが発生しました: {e}")
+        return []
+
+def delete_google_calendar_event(service, calendar_id, event_id):
+    try:
+        # Googleカレンダーからイベントを削除
+        service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+        print(f"イベント {event_id} が削除されました。")
+    except Exception as e:
+        print(f"イベントの削除中にエラーが発生しました: {e}")
 
 
-# 選択した期間を取得して保存する関数
-#def on_save_selected_period():
-    task_name = task_entry.get()
-    task_duration = float(task_duration_entry.get())
-    start_date = cal_start.get_date()
-    end_date = cal_end.get_date()
-    sleep_hours = float(sleep_hours_entry.get())
-    meal_hours = float(meal_hours_entry.get())
-    commute_hours = float(commute_hours_entry.get())
-    save_selected_period(task_name, task_duration, start_date, end_date)
-    print(f"Selected Start Date: {start_date}")
-    print(f"Selected End Date: {end_date}")
-    free_hours, total_duration_hours, sum_others, total_hours = process_period_data()
-    result_label.configure(text=f"Free time: {free_hours} hours")
-    total_hours_label.configure(text=f"total_hours: {total_hours} hours")
-    sleep_hours_label.configure(text=f"sleep hours: {sleep_hours} hours")
-    meal_hours_label.configure(text=f"sleep hours: {meal_hours} hours")
-    commute_hours_label.configure(text=f"sleep hours: {commute_hours} hours")
-    # バックエンドの関数を呼び出して期間を処理
-    process_period_data()
-    compare_hours(free_hours, task_duration)
 
+# タスクリストを更新する関数
+def update_task_delete_listbox():
+    task_listbox.delete(0, ctk.END)
+    for task in tasks:
+        task_listbox.insert(ctk.END, f"{task['task_name']}")
+
+# タスクリストボックスを更新する関数
+
+
+# def create_label(window, text, fg_color):
+#     label = tk.Label(window, text=text, fg=fg_color, font=("Arial", 12))
+#     label.grid(pady=10)
+#     return label
 
 # タスク詳細を表示する関数
 def show_task_details(event):
@@ -206,11 +211,13 @@ def show_task_details(event):
         
         # ラベルにタスク詳細を表示
         details_text = f"タスク名: {task['task_name']}\n" \
+                       f"タスクID: {task['id']}\n" \
                        f"所要時間: {task['task_duration']} 分\n" \
                        f"開始日: {task['start_date']}\n" \
                        f"終了日: {task['end_date']}\n"
 
         details_label.configure(text=details_text)
+        
 
 
 # イベント作成ウィンドウを作成する関数
@@ -654,8 +661,9 @@ task_list_frame.grid_rowconfigure(1, weight=1)
 task_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)  
 task_listbox.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
-delete_button = ctk.CTkButton(task_list_frame, text="Delete Task")
-delete_button.grid(row=1, column=0, pady=5, sticky="ew")
+# ボタンの設定
+delete_button = ctk.CTkButton(task_list_frame, text="タスク削除", command=delete_selected_task)
+delete_button.grid(row=10, column=0, columnspan=3, pady=20)
 
 # イベント作成ウィンドウを開くボタン
 create_event_button = ctk.CTkButton(task_list_frame, text="カレンダーに埋め込む", command=create_event_window)
