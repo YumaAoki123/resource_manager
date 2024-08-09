@@ -1,6 +1,5 @@
 
 creditials.json
 .env
-tasks.json
+resource_manager.db
 __pycache__
-selected_period.json
