@@ -221,18 +221,25 @@ def get_free_times(start_time, end_time, calendar_id=email):
     for busy_period in busy_times:
         start = busy_period['start']
         end = busy_period['end']
-        
+       
+
         # 日本時間に変換
-        start_time_jst = datetime.fromisoformat(start).astimezone(jst)
-        end_time_jst = datetime.fromisoformat(end).astimezone(jst)
-        
+        start_time_jst = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(jst)
+        end_time_jst = datetime.fromisoformat(end.replace("Z", "+00:00")).astimezone(jst)
+       
+
         busy_periods.append((start_time_jst, end_time_jst))
 
     # 予定のない時間帯を計算
     busy_periods.sort()  # 予定のある時間帯をソート
-    current_start = start_time
-
+    current_start = start_time.astimezone(jst)
+    if end_time.tzinfo is None:
+        end_time = jst.localize(end_time)
     for busy_start, busy_end in busy_periods:
+            # 確認用にタイムゾーンを比較
+        print(f"Current Start: {current_start}, Type: {type(current_start)}, TZ Info: {current_start.tzinfo}")
+        print(f"End Time: {end_time}, Type: {type(end_time)}, TZ Info: {end_time.tzinfo}")
+
         # 現在の空き時間の終了が予定の開始より前であれば、その間が空き時間
         if busy_start > current_start:
             free_times.append((current_start, busy_start))
@@ -242,7 +249,7 @@ def get_free_times(start_time, end_time, calendar_id=email):
     # 最後の空き時間を追加
     if current_start < end_time:
         free_times.append((current_start, end_time))
-
+        
     # 空き時間を出力
     for free_start, free_end in free_times:
         print(f"空いている時間帯: start_time: {free_start} から end_time: {free_end}")
