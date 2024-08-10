@@ -22,16 +22,16 @@ load_dotenv()
 
 email = os.getenv('EMAIL')
 
-DATA_FILE = 'tasks.json'
+# DATA_FILE = 'tasks.json'
 
-# タスクデータをファイルから読み込む関数
-def load_tasks():
-    global tasks
-    try:
-        with open(DATA_FILE, "r") as f:
-            tasks = json.load(f)
-    except FileNotFoundError:
-        tasks = []
+# # タスクデータをファイルから読み込む関数
+# def load_tasks():
+#     global tasks
+#     try:
+#         with open(DATA_FILE, "r") as f:
+#             tasks = json.load(f)
+#     except FileNotFoundError:
+#         tasks = []
 
 # サービスアカウントキーファイルのパスを指定する
 SERVICE_ACCOUNT_FILE = '/resource_manager/creditials.json'
@@ -52,7 +52,7 @@ cursor = conn.cursor()
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS event_mappings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    uuid TEXT NOT NULL,
+    task_uuid TEXT NOT NULL,
     event_id TEXT NOT NULL
 )
 ''')
@@ -61,11 +61,11 @@ CREATE TABLE IF NOT EXISTS event_mappings (
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS task_info (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    uuid TEXT NOT NULL,
+    task_uuid TEXT NOT NULL,
     task_name TEXT NOT NULL,
-    task_duration TEXT NOT NULL,
-    start_date TEXT NOT NULL,             
-    end_date TEXT NOT NULL
+    task_duration INTEGER NOT NULL,
+    start_date DATETIME NOT NULL,             
+    end_date DATETIME NOT NULL
 )
 ''')
 
@@ -73,10 +73,10 @@ CREATE TABLE IF NOT EXISTS task_info (
 conn.commit()
 conn.close()
 
-# タスクデータをファイルに保存する関数
-def save_tasks():
-    with open(DATA_FILE, "w") as f:
-        json.dump(tasks, f)
+# # タスクデータをファイルに保存する関数
+# def save_tasks():
+#     with open(DATA_FILE, "w") as f:
+#         json.dump(tasks, f)
 
 # def load_tasks():
     # try:
@@ -90,7 +90,7 @@ def load_tasks():
     cursor = conn.cursor()
     
     # タスク情報をデータベースから読み込む
-    cursor.execute('SELECT uuid, task_name, task_duration, start_date, end_date FROM task_info')
+    cursor.execute('SELECT task_uuid, task_name, task_duration, start_date, end_date FROM task_info')
     rows = cursor.fetchall()
     
     global tasks
@@ -98,7 +98,7 @@ def load_tasks():
     
     for row in rows:
         task = {
-            "uuid": row[0],
+            "task_uuid": row[0],
             "task_name": row[1],
             "task_duration": row[2],
             "start_date": row[3],
@@ -187,7 +187,7 @@ def add_task():
         end_date_iso = end_date_jst.isoformat()
 
         task_info = {
-        "id": task_uuid,
+        "task_uuid": task_uuid,
         "task_name": task_name,
         "task_duration": task_duration,
         "start_date": start_date_iso,  # ISO形式の文字列に変換された日付
@@ -208,7 +208,7 @@ def save_task_info(task_uuid, task_name, task_duration, start_date, end_date):
 
         # UUIDとイベントIDのマッピングをデータベースに挿入
         cursor.execute('''
-        INSERT INTO task_info (uuid, task_name, task_duration, start_date, end_date) VALUES (?, ?, ?, ?, ?)
+        INSERT INTO task_info (task_uuid, task_name, task_duration, start_date, end_date) VALUES (?, ?, ?, ?, ?)
         ''', (task_uuid, task_name, task_duration, start_date, end_date))
 
         # 変更を保存して接続を閉じます
@@ -230,7 +230,7 @@ def get_event_ids_by_uuid(uuid):
         cursor = conn.cursor()
         
         # UUIDに基づくイベントIDの取得
-        cursor.execute("SELECT event_id FROM event_mappings WHERE uuid = ?", (uuid,))
+        cursor.execute("SELECT event_id FROM event_mappings WHERE task_uuid = ?", (uuid,))
         event_ids = [row[0] for row in cursor.fetchall()]
         
         conn.close()
@@ -243,7 +243,7 @@ def delete_selected_task():
     selected_task_index = task_listbox.curselection()
     if selected_task_index:
         index = selected_task_index[0]  # 選択されたタスクのインデックス
-        task_uuid = tasks[index]['id']  # UUIDを取得
+        task_uuid = tasks[index]['task_uuid']  # UUIDを取得
         calendar_id = email  # カレンダーIDを設定
         
         # UUIDに基づいて関連するイベントIDを取得
@@ -264,9 +264,13 @@ def delete_selected_task():
             del tasks[index]
             # データベースからUUIDに関連するイベントIDを削除
             delete_event_ids_by_uuid(task_uuid)
-            save_tasks()
+
+            # データベースから該当するタスクを削除
+            delete_task_info_by_uuid(task_uuid)
+           
             # リストボックスを更新
             update_task_delete_listbox()
+
             
             
         else:
@@ -274,6 +278,7 @@ def delete_selected_task():
     else:
         print("削除するタスクを選択してください。")
 
+#一連のdelete関連のトランザクションを後で実装する
 def delete_event_ids_by_uuid(uuid):
     """指定されたUUIDに関連するすべてのイベントIDをデータベースから削除します。"""
     try:
@@ -282,13 +287,27 @@ def delete_event_ids_by_uuid(uuid):
         cursor = conn.cursor()
 
         # UUIDに基づくイベントIDの削除
-        cursor.execute("DELETE FROM event_mappings WHERE uuid = ?", (uuid,))
+        cursor.execute("DELETE FROM event_mappings WHERE task_uuid = ?", (uuid,))
         conn.commit()
         print(f"UUID {uuid} に関連するイベントIDがデータベースから削除されました。")
 
         conn.close()
     except sqlite3.Error as e:
         print(f"データベースエラー: {e}")
+
+def delete_task_info_by_uuid(task_uuid):
+    # データベースに接続
+    conn = sqlite3.connect('resource_manager.db')
+    cursor = conn.cursor()
+
+    # `task_info`テーブルからUUIDに関連するタスクを削除
+    cursor.execute('''
+    DELETE FROM task_info WHERE task_uuid = ?
+    ''', (task_uuid,))
+    
+    # 変更を保存して接続を閉じる
+    conn.commit()
+    conn.close()
 
 def delete_google_calendar_event(service, calendar_id, event_id):
     try:
@@ -327,7 +346,7 @@ def show_task_details(event):
         
         # ラベルにタスク詳細を表示
         details_text = f"タスク名: {task['task_name']}\n" \
-                       f"タスクID: {task['uuid']}\n" \
+                       f"タスクID: {task['task_uuid']}\n" \
                        f"所要時間: {task['task_duration']} 分\n" \
                        f"開始日: {task['start_date']}\n" \
                        f"終了日: {task['end_date']}\n"
@@ -357,6 +376,7 @@ def create_event_window():
 
     # タスク詳細をイベント情報として表示
     event_details_text = f"イベント名: {task['task_name']}\n" \
+                         f"タスクID: {task['task_uuid']}\n" \
                          f"予定時間: {task['task_duration']} 分\n" \
                          f"開始日: {task['start_date']}\n" \
                          f"終了日: {task['end_date']}\n"
@@ -388,13 +408,11 @@ def create_event_window():
 
         # ラベルに応じたGoogleカレンダーのcolorIdを返す
         if selected_value == "1":
-            return 1  # 優先度高
+            return 11  # 優先度高
         elif selected_value == "2":
             return 2  # 優先度中
         elif selected_value == "3":
-            return 3  # 優先度低
-        else:
-            return None  # 未選択
+            return 7  # 優先度低
 
     def on_priority_change():
         # 優先度が変更されたときの処理
@@ -404,7 +422,7 @@ def create_event_window():
 
 
     # 優先度選択ラジオボタンの変数
-    priority_var = ctk.StringVar(value="1")  # デフォルトは中
+    priority_var = ctk.StringVar(value="2")  # デフォルトは中
 
     # 優先度選択ラジオボタンの作成
     priority_label = ctk.CTkLabel(event_window, text="優先度を選択:")
@@ -472,7 +490,8 @@ def create_event_window():
     # 文字列をdatetimeオブジェクトに変換
     start_time = datetime.fromisoformat(task['start_date'])
     end_time = datetime.fromisoformat(task['end_date'])
- 
+    print(f"Start Time: {start_time}, tzinfo: {start_time.tzinfo}")
+    print(f"End Time: {end_time}, tzinfo: {end_time.tzinfo}")
     print(f"Request Body: {start_time}")  # デバッグ用
     # 空き時間を取得
     free_times = get_free_times(start_time, end_time, calendar_id=email)
@@ -645,7 +664,7 @@ def create_event_window():
     select_button.grid(row=9, column=0, pady=20)
 
 
-    def add_events_to_google_calendar(service, calendar_id, task_times, task_name, task_id, color_id='1'):
+    def add_events_to_google_calendar(service, calendar_id, task_times, task_name, task_uuid, color_id='selected_priority'):
         """Google Calendarに複数のイベントを追加し、同じUUIDでイベントIDをマッピングします。"""
         # すべてのイベントで共有する新しいUUIDを生成
         
@@ -666,7 +685,7 @@ def create_event_window():
                 event_result = service.events().insert(calendarId=calendar_id, body=event).execute()
                 event_id = event_result.get('id')
                  # UUIDとイベントIDのマッピングをSQLiteデータベースに保存
-                save_uuid_event_id_mapping(task_id, event_id)
+                save_uuid_event_id_mapping(task_uuid, event_id)
                 print(f"Event created: {event_result['htmlLink']}")
             except HttpError as error:
                 print(f'An error occurred: {error}')
@@ -678,7 +697,7 @@ def create_event_window():
 
         # UUIDとイベントIDのマッピングをデータベースに挿入
         cursor.execute('''
-        INSERT INTO event_mappings (uuid, event_id) VALUES (?, ?)
+        INSERT INTO event_mappings (task_uuid, event_id) VALUES (?, ?)
         ''', (uuid, event_id))
 
         # 変更を保存して接続を閉じます
@@ -728,7 +747,7 @@ def create_event_window():
         filled_task_times = fill_available_time(task_times, task_duration_minutes)
         calendar_id = email  # 使用するカレンダーID
         if filled_task_times:
-           add_events_to_google_calendar(service, calendar_id, filled_task_times, task['task_name'],task['id'], selected_priority)
+           add_events_to_google_calendar(service, calendar_id, filled_task_times, task['task_name'],task['task_uuid'], selected_priority)
 
 
     # Googleカレンダーに追加するボタン
@@ -744,7 +763,7 @@ def get_all_mappings():
     cursor = conn.cursor()
 
     # テーブルからすべての行を選択
-    cursor.execute('SELECT uuid, event_id FROM event_mappings')
+    cursor.execute('SELECT task_uuid, event_id FROM event_mappings')
     rows = cursor.fetchall()
 
     # 取得したマッピングを表示
