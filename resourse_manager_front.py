@@ -1,24 +1,22 @@
-from google.oauth2 import service_account
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 from tkcalendar import DateEntry
 import customtkinter as ctk
-import json
-from resource_manager import save_selected_period, process_period_data, get_free_times # バックエンドの関数をインポート
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
-from dotenv import load_dotenv
-import os
+import os.path
+import sys
+import pickle
 from datetime import datetime, timedelta, timezone
 import pytz
-import math
 import uuid
 import sqlite3
 # タスクを保存するためのリスト
 tasks = []
-load_dotenv()
 
 email = os.getenv('EMAIL')
 
@@ -33,16 +31,41 @@ email = os.getenv('EMAIL')
 #     except FileNotFoundError:
 #         tasks = []
 
-# サービスアカウントキーファイルのパスを指定する
-SERVICE_ACCOUNT_FILE = '/resource_manager/creditials.json'
-
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
+TOKEN_PICKLE = 'token.pickle'
 
-# ファイルパスを引数として渡す
-credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+def get_credentials():
+    creds = None
+    # 実行環境に応じたファイルパスの取得
+    if getattr(sys, 'frozen', False):
+        # PyInstallerでパッケージ化された場合
+        base_path = sys._MEIPASS
+    else:
+        # 開発中の場合
+        base_path = os.path.dirname(__file__)
+
+    # credentials.jsonのパスを組み立てる
+    credentials_path = os.path.join(base_path, 'credentials.json')
+
+    # 既にトークンが存在する場合、それを読み込む
+    if os.path.exists(TOKEN_PICKLE):
+        with open(TOKEN_PICKLE, 'rb') as token:
+            creds = pickle.load(token)
+    # トークンがないか、無効または期限切れの場合、新しく認証を行う
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
+            creds = flow.run_local_server(port=0)
+        # トークンを保存
+        with open(TOKEN_PICKLE, 'wb') as token:
+            pickle.dump(creds, token)
+    return creds
 
 # Google Calendar API を使うための準備
-service = build('calendar', 'v3', credentials=credentials)
+creds = get_credentials()
+service = build('calendar', 'v3', credentials=creds)
 
 # SQLiteデータベースに接続（ファイルが存在しない場合は作成されます）
 conn = sqlite3.connect('resource_manager.db')
@@ -53,7 +76,10 @@ cursor.execute('''
 CREATE TABLE IF NOT EXISTS event_mappings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_uuid TEXT NOT NULL,
-    event_id TEXT NOT NULL
+    event_id TEXT NOT NULL,
+    summary TEXT,
+    start_time TEXT,
+    end_time TEXT
 )
 ''')
 
@@ -143,7 +169,6 @@ def load_tasks():
 #     loading_animation = LoadingAnimation(window)
 #     loading_animation.start()
 
-    
 #     def show_result():
 #         # 比較結果を判定し、ラベルのテキストと色を設定
 #         if task_duration > free_hours:
@@ -256,7 +281,7 @@ def delete_selected_task():
         # Googleカレンダーのイベントを削除
         delete_successful = True
         for event_id in event_ids:
-            if not delete_google_calendar_event(service, calendar_id, event_id):
+            if not delete_google_calendar_event(service, event_id):
                 delete_successful = False
 
         if delete_successful:
@@ -309,9 +334,9 @@ def delete_task_info_by_uuid(task_uuid):
     conn.commit()
     conn.close()
 
-def delete_google_calendar_event(service, calendar_id, event_id):
+def delete_google_calendar_event(service, event_id):
     try:
-        service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+        service.events().delete(calendarId="primary", eventId=event_id).execute()
         print(f"イベント {event_id} が削除されました。")
         return True
     except Exception as e:
@@ -352,7 +377,73 @@ def show_task_details(event):
                        f"終了日: {task['end_date']}\n"
 
         details_label.configure(text=details_text)
+
         
+def get_free_times(start_time, end_time, calendar_id="primary"):
+    
+  # 空き時間のリスト
+    free_times = []
+  # JST タイムゾーンを設定
+    jst = pytz.timezone('Asia/Tokyo')
+    
+    # 日本時間からUTCに変換(googlecalendarapiがutcじゃないと読み取らないらしい)
+    start_time_utc = start_time.astimezone(pytz.UTC)
+    end_time_utc = end_time.astimezone(pytz.UTC)
+    print(f"Request Body: {start_time_utc}")  # デバッグ用
+    # リクエストのボディを作成
+    request_body = {
+        "timeMin": start_time_utc.isoformat(),
+        "timeMax": end_time_utc.isoformat(),
+        "timeZone": "Asia/Tokyo",  # レスポンスのタイムゾーン
+        "items": [{"id": calendar_id}]
+    }
+    
+    print(f"Request Body: {request_body}")  # デバッグ用
+    
+    # freebusyリクエストを送信
+    freebusy_result = service.freebusy().query(body=request_body).execute()
+
+    busy_times = freebusy_result['calendars'][calendar_id]['busy']
+
+      # 予定のある時間帯を計算
+    busy_periods = []
+    for busy_period in busy_times:
+        start = busy_period['start']
+        end = busy_period['end']
+       
+
+        # 日本時間に変換
+        start_time_jst = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(jst)
+        end_time_jst = datetime.fromisoformat(end.replace("Z", "+00:00")).astimezone(jst)
+       
+
+        busy_periods.append((start_time_jst, end_time_jst))
+
+    # 予定のない時間帯を計算
+    busy_periods.sort()  # 予定のある時間帯をソート
+    current_start = start_time.astimezone(jst)
+    if end_time.tzinfo is None:
+        end_time = jst.localize(end_time)
+    for busy_start, busy_end in busy_periods:
+            # 確認用にタイムゾーンを比較
+        print(f"Current Start: {current_start}, Type: {type(current_start)}, TZ Info: {current_start.tzinfo}")
+        print(f"End Time: {end_time}, Type: {type(end_time)}, TZ Info: {end_time.tzinfo}")
+
+        # 現在の空き時間の終了が予定の開始より前であれば、その間が空き時間
+        if busy_start > current_start:
+            free_times.append((current_start, busy_start))
+        # 現在の空き時間の開始を予定の終了時間に更新
+        current_start = max(current_start, busy_end)
+
+    # 最後の空き時間を追加
+    if current_start < end_time:
+        free_times.append((current_start, end_time))
+        
+    # 空き時間を出力
+    for free_start, free_end in free_times:
+        print(f"空いている時間帯: start_time: {free_start} から end_time: {free_end}")
+
+    return free_times
 
 
 # イベント作成ウィンドウを作成する関数
@@ -494,7 +585,7 @@ def create_event_window():
     print(f"End Time: {end_time}, tzinfo: {end_time.tzinfo}")
     print(f"Request Body: {start_time}")  # デバッグ用
     # 空き時間を取得
-    free_times = get_free_times(start_time, end_time, calendar_id=email)
+    free_times = get_free_times(start_time, end_time)
 
         #空き時間を表示（または他の処理に利用）
     # free_times_text = "空き時間:\n" + "\n".join(
@@ -664,7 +755,7 @@ def create_event_window():
     select_button.grid(row=9, column=0, pady=20)
 
 
-    def add_events_to_google_calendar(service, calendar_id, task_times, task_name, task_uuid, color_id='selected_priority'):
+    def add_events_to_google_calendar(service, task_times, task_name, task_uuid, color_id='selected_priority'):
         """Google Calendarに複数のイベントを追加し、同じUUIDでイベントIDをマッピングします。"""
         # すべてのイベントで共有する新しいUUIDを生成
         
@@ -682,23 +773,28 @@ def create_event_window():
                 'colorId': color_id,  # イベントの色を設定
             }
             try:
-                event_result = service.events().insert(calendarId=calendar_id, body=event).execute()
+                event_result = service.events().insert(calendarId="primary", body=event).execute()
                 event_id = event_result.get('id')
-                 # UUIDとイベントIDのマッピングをSQLiteデータベースに保存
-                save_uuid_event_id_mapping(task_uuid, event_id)
+                event_summary = event_result.get('summary')
+                event_start = event_result['start'].get('dateTime', event_result['start'].get('date'))
+                event_end = event_result['end'].get('dateTime', event_result['end'].get('date'))
+                 # UUIDとイベントIDおよび詳細をデータベースに保存
+                save_uuid_event_id_mapping(task_uuid, event_id, event_summary, event_start, event_end)
                 print(f"Event created: {event_result['htmlLink']}")
+                print(f"Event details saved: {event_summary}, {event_start} - {event_end}")
             except HttpError as error:
                 print(f'An error occurred: {error}')
 
-    def save_uuid_event_id_mapping(uuid, event_id):
+    def save_uuid_event_id_mapping(uuid, event_id, event_summary, event_start, event_end):
         # SQLiteデータベースに接続
         conn = sqlite3.connect('resource_manager.db')
         cursor = conn.cursor()
 
-        # UUIDとイベントIDのマッピングをデータベースに挿入
+        # 新しいカラムに対応してデータを挿入
         cursor.execute('''
-        INSERT INTO event_mappings (task_uuid, event_id) VALUES (?, ?)
-        ''', (uuid, event_id))
+        INSERT INTO event_mappings (task_uuid, event_id, summary, start_time, end_time)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (uuid, event_id, event_summary, event_start, event_end))
 
         # 変更を保存して接続を閉じます
         conn.commit()
@@ -747,9 +843,10 @@ def create_event_window():
         filled_task_times = fill_available_time(task_times, task_duration_minutes)
         calendar_id = email  # 使用するカレンダーID
         if filled_task_times:
-           add_events_to_google_calendar(service, calendar_id, filled_task_times, task['task_name'],task['task_uuid'], selected_priority)
-
-
+           add_events_to_google_calendar(service, filled_task_times, task['task_name'],task['task_uuid'], selected_priority)
+    test_button = ctk.CTkButton(event_window, text="test", command=get_free_times)
+    test_button.grid(row=12, pady=20)
+ 
     # Googleカレンダーに追加するボタン
     add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加", command=on_insert_button_click)
     add_event_button.grid(row=11, pady=20)
@@ -757,22 +854,71 @@ def create_event_window():
     event_window.mainloop()
     
 def get_all_mappings():
-    """SQLiteデータベースから全てのUUIDとイベントIDのマッピングを取得して表示します。"""
+    """SQLiteデータベースから全てのUUID、イベントID、サマリー、開始時間、終了時間のマッピングを取得して表示します。"""
     # SQLiteデータベースに接続
     conn = sqlite3.connect('resource_manager.db')
     cursor = conn.cursor()
 
     # テーブルからすべての行を選択
-    cursor.execute('SELECT task_uuid, event_id FROM event_mappings')
+    cursor.execute('SELECT task_uuid, event_id, summary, start_time, end_time FROM event_mappings')
     rows = cursor.fetchall()
 
     # 取得したマッピングを表示
     for row in rows:
-        uuid, event_id = row
-        print(f"UUID: {uuid}, Event ID: {event_id}")
+        task_uuid, event_id, summary, start_time, end_time = row
+        print(f"UUID: {task_uuid}, Event ID: {event_id}, Summary: {summary}, Start Time: {start_time}, End Time: {end_time}")
 
     # 接続を閉じる
     conn.close()
+
+# プログレスバーの進捗率を計算する関数
+def calculate_progress(task_times):
+    current_time = datetime.now()
+    completed_duration = 0
+    total_task_duration = 0
+
+    for start_time, end_time in task_times:
+        task_duration = (end_time - start_time).total_seconds() / 60  # タスクの長さを分単位で計算
+        total_task_duration += task_duration
+
+        # 現在の時間より前に終了したタスクの時間を加算
+        if end_time < current_time:
+            completed_duration += task_duration
+
+    # プログレスバー用に進捗率を計算
+    if total_task_duration == 0:
+        return 0  # タスクがない場合は進捗0%
+    
+    progress_percentage = (completed_duration / total_task_duration) * 100
+    return progress_percentage
+
+# データベースからタスクの時間情報を取得する関数
+def fetch_task_times():
+    # 現在の時間を取得
+    current_time = datetime.now()
+
+    # SQLiteデータベースに接続
+    conn = sqlite3.connect('resource_manager.db')
+    cursor = conn.cursor()
+
+    # 現在の時間より前のタスクを取得
+    cursor.execute('''
+        SELECT start_time, end_time FROM event_mappings
+        WHERE end_time < ?
+    ''', (current_time,))
+    
+    # 取得したデータをリストに格納
+    task_times = []
+    for row in cursor.fetchall():
+        # SQLiteのdatetime文字列をPythonのdatetimeオブジェクトに変換
+        start_time = datetime.fromisoformat(row[0])
+        end_time = datetime.fromisoformat(row[1])
+        task_times.append((start_time, end_time))
+
+    # データベース接続を閉じる
+    conn.close()
+
+    return task_times
 # GUIのセットアップ
 app = ctk.CTk()
 app.title("resource_manager")
@@ -859,25 +1005,26 @@ details_label = ctk.CTkLabel(
 )
 details_label.grid(row=0, column=1, padx=10, pady=(10, 0), sticky="nsew")
 
-# プログレスバーを表示するためのFigureとAxesを作成
-fig, ax = plt.subplots(figsize=(5, 2))
-canvas = FigureCanvasTkAgg(fig, master=task_list_frame)  # 描画領域をTkinterウィジェットに設定
-canvas.get_tk_widget().grid(row=1, column=1, padx=10, pady=(0, 10), sticky="nsew")  # gridを使用して配置
 
-def update_progress(progress):
-    """進捗バーを更新する"""
-    # グラフをクリア
-    ax.clear()
-    # プログレスバーを描画
-    ax.barh(['Task Progress'], [progress], color='skyblue')
-    ax.set_xlim(0, 100)  # x軸の範囲を0〜100に設定
-    ax.set_xlabel('Progress (%)')  # x軸のラベルを設定
-    ax.set_title('Task Progress')  # グラフのタイトルを設定
-    canvas.draw()  # キャンバスを再描画
 
-# 進捗を更新（例として50%を設定）
-update_progress(50)
+# プログレスバーを更新する関数
+def update_progress_bar():
+    task_times = fetch_task_times()  # データベースからタスクデータを取得
+    progress = calculate_progress(task_times)
+    
+    # プログレスバーを更新
+    progress_bar['value'] = progress
+    progress_label.config(text=f"{progress:.2f}% 完了")
 
+# プログレスバーを作成
+progress_bar = ttk.Progressbar(task_list_frame, length=300, mode='determinate')
+progress_bar.grid(pady=20)
+# 進捗率を表示するラベル
+progress_label = tk.Label(task_list_frame, text="0% 完了")
+progress_label.grid()
+# プログレスバーを更新するボタン
+update_button = tk.Button(task_list_frame, text="進捗を更新", command=update_progress_bar)
+update_button.grid(pady=20)
 # ユーザ情報管理タブ
 user_information_frame = ctk.CTkFrame(notebook)
 notebook.add(user_information_frame, text="ユーザ情報")
