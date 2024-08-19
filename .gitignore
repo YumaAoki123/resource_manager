@@ -1,5 +1,6 @@
 
-creditials.json
+credentials.json
 .env
 resource_manager.db
 __pycache__
+token.pickle
