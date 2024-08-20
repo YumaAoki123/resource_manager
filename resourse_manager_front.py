@@ -79,7 +79,8 @@ CREATE TABLE IF NOT EXISTS event_mappings (
     event_id TEXT NOT NULL,
     summary TEXT,
     start_time TEXT,
-    end_time TEXT
+    end_time TEXT,
+    FOREIGN KEY (task_uuid) REFERENCES task_conditions(task_uuid)
 )
 ''')
 
@@ -92,6 +93,17 @@ CREATE TABLE IF NOT EXISTS task_info (
     task_duration INTEGER NOT NULL,
     start_date DATETIME NOT NULL,             
     end_date DATETIME NOT NULL
+)
+''')
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS task_conditions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_uuid TEXT NOT NULL,
+    selected_time_range TEXT,
+    selected_priority INTEGER,
+    min_duration INTEGER,
+    FOREIGN KEY (task_uuid) REFERENCES task_info (task_uuid)
 )
 ''')
 
@@ -377,6 +389,7 @@ def show_task_details(event):
                        f"終了日: {task['end_date']}\n"
 
         details_label.configure(text=details_text)
+        update_progress_bar()
 
         
 def get_free_times(start_time, end_time, calendar_id="primary"):
@@ -755,10 +768,10 @@ def create_event_window():
     select_button.grid(row=9, column=0, pady=20)
 
 
-    def add_events_to_google_calendar(service, task_times, task_name, task_uuid, color_id='selected_priority'):
+    def add_events_to_google_calendar(service, task_times, task_name, task_uuid, selected_time_range, selected_priority, min_duration):
         """Google Calendarに複数のイベントを追加し、同じUUIDでイベントIDをマッピングします。"""
-        # すべてのイベントで共有する新しいUUIDを生成
-        
+        # タスク条件を保存
+        save_task_conditions(task_uuid, selected_time_range, selected_priority, min_duration)
         for start_time, end_time in task_times:
             event = {
                 'summary': task_name,
@@ -770,7 +783,7 @@ def create_event_window():
                     'dateTime': end_time.isoformat(),
                     'timeZone': 'Asia/Tokyo',
                 },
-                'colorId': color_id,  # イベントの色を設定
+                'colorId': str(selected_priority),  # イベントの色を設定
             }
             try:
                 event_result = service.events().insert(calendarId="primary", body=event).execute()
@@ -800,9 +813,27 @@ def create_event_window():
         conn.commit()
         conn.close()
 
+    def save_task_conditions(task_uuid, selected_time_range, selected_priority, min_duration):
+        """タスクの条件をデータベースに保存します。"""
+        conn = sqlite3.connect('resource_manager.db')
+        cursor = conn.cursor()
+        # selected_time_rangeを文字列形式に変換
+        time_range_str = ', '.join([f"{start}-{end}" for start, end in selected_time_range])
+    # 保存するデータの内容を表示
+        print("Saving task conditions:")
+        print(f"task_uuid: {task_uuid}")
+        print(f"selected_time_range: {time_range_str}")
+        print(f"selected_priority: {selected_priority}")
+        print(f"min_duration: {min_duration}")
+        # task_conditions テーブルにデータを挿入
+        cursor.execute('''
+            INSERT OR REPLACE INTO task_conditions (task_uuid, selected_time_range, selected_priority, min_duration)
+            VALUES (?, ?, ?, ?)
+        ''', (task_uuid, time_range_str, selected_priority, min_duration))
 
+        conn.commit()
+        conn.close()
 
-   
 
     def fill_available_time(task_times, task_duration_minutes):
         task_duration_minutes = task['task_duration']
@@ -834,16 +865,15 @@ def create_event_window():
             return []          
         
     def on_insert_button_click():
-        selected_ranges = get_selected_time_ranges()
+        selected_time_ranges = get_selected_time_ranges()
         min_duration = get_selected_min_duration()
-        task_times = compare_time_ranges(selected_ranges, free_times, min_duration)
+        task_times = compare_time_ranges(selected_time_ranges, free_times, min_duration)
         task_duration_minutes = task['task_duration']
         selected_priority = get_selected_priority_label()
        # 空いている時間帯と所要時間を比較し、タスクを埋め込む
         filled_task_times = fill_available_time(task_times, task_duration_minutes)
-        calendar_id = email  # 使用するカレンダーID
         if filled_task_times:
-           add_events_to_google_calendar(service, filled_task_times, task['task_name'],task['task_uuid'], selected_priority)
+           add_events_to_google_calendar(service, filled_task_times, task['task_name'],task['task_uuid'], selected_time_ranges, selected_priority, min_duration)
     test_button = ctk.CTkButton(event_window, text="test", command=get_free_times)
     test_button.grid(row=12, pady=20)
  
@@ -870,55 +900,80 @@ def get_all_mappings():
 
     # 接続を閉じる
     conn.close()
+def get_all_task_conditions():
+    """SQLiteデータベースから全てのタスク条件（UUID、時間帯、優先度、最小時間）を取得して表示します。"""
+    # SQLiteデータベースに接続
+    conn = sqlite3.connect('resource_manager.db')
+    cursor = conn.cursor()
 
+    # task_conditions テーブルからすべての行を選択
+    cursor.execute('SELECT task_uuid, selected_time_range, selected_priority, min_duration FROM task_conditions')
+    rows = cursor.fetchall()
+
+    # 取得したタスク条件を表示
+    for row in rows:
+        task_uuid, selected_time_range, selected_priority, min_duration = row
+        print(f"UUID: {task_uuid}, Time Range: {selected_time_range}, Priority: {selected_priority}, Min Duration: {min_duration}")
+
+    # 接続を閉じる
+    conn.close()
 # プログレスバーの進捗率を計算する関数
-def calculate_progress(task_times):
-    current_time = datetime.now()
+def calculate_progress(task_times, total_task_duration):
+    # 現在の時間をUTCとして取得
+    tokyo_tz = pytz.timezone('Asia/Tokyo')
+    current_time = datetime.now(tokyo_tz)
+    print(f"current_time{current_time}")
     completed_duration = 0
-    total_task_duration = 0
 
     for start_time, end_time in task_times:
-        task_duration = (end_time - start_time).total_seconds() / 60  # タスクの長さを分単位で計算
-        total_task_duration += task_duration
-
         # 現在の時間より前に終了したタスクの時間を加算
         if end_time < current_time:
-            completed_duration += task_duration
+            task_duration_segment = (end_time - start_time).total_seconds() / 60  # 分単位でタスクの時間を計算
+            completed_duration += task_duration_segment
 
     # プログレスバー用に進捗率を計算
     if total_task_duration == 0:
         return 0  # タスクがない場合は進捗0%
     
     progress_percentage = (completed_duration / total_task_duration) * 100
+    print(f"progress_percentage{progress_percentage}")
+    print(f"completed_duration{completed_duration}")
+    print(f"total_task_duration{total_task_duration}")
     return progress_percentage
+    
 
-# データベースからタスクの時間情報を取得する関数
-def fetch_task_times():
-    # 現在の時間を取得
-    current_time = datetime.now()
 
+
+def fetch_task_times_and_duration(task_uuid):
     # SQLiteデータベースに接続
     conn = sqlite3.connect('resource_manager.db')
     cursor = conn.cursor()
 
-    # 現在の時間より前のタスクを取得
+    # 現在の時間を取得（Asia/Tokyo タイムゾーンに設定）
+    tokyo_tz = pytz.timezone('Asia/Tokyo')
+    current_time = datetime.now(tokyo_tz)
+    print(f"current_time_fetch{current_time}")
+
+
+    # task_uuidに基づいて、現在の時間より前のタスクの時間情報を取得
     cursor.execute('''
         SELECT start_time, end_time FROM event_mappings
-        WHERE end_time < ?
-    ''', (current_time,))
-    
+        WHERE task_uuid = ? AND end_time < ?
+    ''', (task_uuid, current_time.isoformat()))
+
     # 取得したデータをリストに格納
     task_times = []
     for row in cursor.fetchall():
         # SQLiteのdatetime文字列をPythonのdatetimeオブジェクトに変換
-        start_time = datetime.fromisoformat(row[0])
-        end_time = datetime.fromisoformat(row[1])
+        start_time = datetime.fromisoformat(row[0]).astimezone(tokyo_tz)
+        end_time = datetime.fromisoformat(row[1]).astimezone(tokyo_tz)
         task_times.append((start_time, end_time))
 
     # データベース接続を閉じる
     conn.close()
 
     return task_times
+
 # GUIのセットアップ
 app = ctk.CTk()
 app.title("resource_manager")
@@ -1009,22 +1064,61 @@ details_label.grid(row=0, column=1, padx=10, pady=(10, 0), sticky="nsew")
 
 # プログレスバーを更新する関数
 def update_progress_bar():
-    task_times = fetch_task_times()  # データベースからタスクデータを取得
-    progress = calculate_progress(task_times)
+    selected_task_index = task_listbox.curselection()
     
-    # プログレスバーを更新
-    progress_bar['value'] = progress
-    progress_label.config(text=f"{progress:.2f}% 完了")
+    if selected_task_index:
+        # プログレスバーを0にリセット
+        progress_bar.set(0)
+        progress_label.configure(text="0% 完了")
+
+        # 選択されたタスクのUUIDを取得
+        index = selected_task_index[0]
+        task_uuid = tasks[index]['task_uuid']  # 例としてtasksリストからUUIDを取得
+        
+        # 選択されたタスクのtask_durationも取得
+        task_duration = tasks[index]['task_duration']  # 例としてtasksリストからtask_durationを取得
+
+        # タスク時間を取得
+        task_times = fetch_task_times_and_duration(task_uuid)
+
+        # 進捗を計算
+        progress_percentage = calculate_progress(task_times, task_duration)
+
+        # 進捗率を0.0～1.0に変換
+        target_progress = progress_percentage / 100
+
+        # アニメーションで進捗バーを更新
+        animate_progress_bar(target_progress)
+
+    else:
+        print("タスクが選択されていません。")
+
+def animate_progress_bar(target_progress):
+    current_progress = progress_bar.get()
+    
+    if current_progress < target_progress:
+        # 進捗を増加させる
+        current_progress += 0.01
+        current_progress = min(current_progress, target_progress)  # 目標値を超えないように制限
+        progress_bar.set(current_progress)
+        
+        # ラベルに進捗率を表示
+        progress_label.configure(text=f"{int(current_progress * 100)}% 完了")
+        
+        # アニメーションを続ける
+        task_list_frame.after(10, animate_progress_bar, target_progress)
+    else:
+        # 最終進捗率を表示
+        progress_label.configure(text=f"{int(target_progress * 100)}% 完了")
 
 # プログレスバーを作成
-progress_bar = ttk.Progressbar(task_list_frame, length=300, mode='determinate')
-progress_bar.grid(pady=20)
+progress_bar = ctk.CTkProgressBar(task_list_frame, width=300, height=20, corner_radius=10, mode='determinate')
+progress_bar.grid(row=1, column=0, columnspan=2, padx=20, pady=10, sticky='ew')
+
 # 進捗率を表示するラベル
-progress_label = tk.Label(task_list_frame, text="0% 完了")
-progress_label.grid()
-# プログレスバーを更新するボタン
-update_button = tk.Button(task_list_frame, text="進捗を更新", command=update_progress_bar)
-update_button.grid(pady=20)
+progress_label = ctk.CTkLabel(task_list_frame, text="0%")
+progress_label.grid(row=2, column=0, padx=10, pady=10)
+
 # ユーザ情報管理タブ
 user_information_frame = ctk.CTkFrame(notebook)
 notebook.add(user_information_frame, text="ユーザ情報")
