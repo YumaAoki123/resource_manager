@@ -73,6 +73,29 @@ cursor = conn.cursor()
 
 # テーブルを作成します（存在しない場合のみ）
 cursor.execute('''
+CREATE TABLE IF NOT EXISTS task_info (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_uuid TEXT NOT NULL,
+    task_name TEXT NOT NULL
+)
+''')
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS task_conditions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_uuid TEXT NOT NULL,
+    task_duration INTEGER NOT NULL,
+    start_date DATETIME NOT NULL,
+    end_date DATETIME NOT NULL,
+    selected_time_range TEXT NOT NULL,
+    selected_priority INTEGER,
+    min_duration INTEGER,
+    FOREIGN KEY (task_uuid) REFERENCES task_info(task_uuid)
+)
+''')
+
+# テーブルを作成します（存在しない場合のみ）
+cursor.execute('''
 CREATE TABLE IF NOT EXISTS event_mappings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_uuid TEXT NOT NULL,
@@ -81,29 +104,6 @@ CREATE TABLE IF NOT EXISTS event_mappings (
     start_time TEXT,
     end_time TEXT,
     FOREIGN KEY (task_uuid) REFERENCES task_conditions(task_uuid)
-)
-''')
-
-# テーブルを作成します（存在しない場合のみ）
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS task_info (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_uuid TEXT NOT NULL,
-    task_name TEXT NOT NULL,
-    task_duration INTEGER NOT NULL,
-    start_date DATETIME NOT NULL,             
-    end_date DATETIME NOT NULL
-)
-''')
-
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS task_conditions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_uuid TEXT NOT NULL,
-    selected_time_range TEXT,
-    selected_priority INTEGER,
-    min_duration INTEGER,
-    FOREIGN KEY (task_uuid) REFERENCES task_info (task_uuid)
 )
 ''')
 
@@ -128,7 +128,7 @@ def load_tasks():
     cursor = conn.cursor()
     
     # タスク情報をデータベースから読み込む
-    cursor.execute('SELECT task_uuid, task_name, task_duration, start_date, end_date FROM task_info')
+    cursor.execute('SELECT task_uuid, task_name FROM task_info')
     rows = cursor.fetchall()
     
     global tasks
@@ -138,9 +138,6 @@ def load_tasks():
         task = {
             "task_uuid": row[0],
             "task_name": row[1],
-            "task_duration": row[2],
-            "start_date": row[3],
-            "end_date": row[4]
         }
         tasks.append(task)
     
@@ -204,31 +201,15 @@ def load_tasks():
 # タスクを追加する関数
 def add_task():
         task_name = task_entry.get()
-        task_duration = float(task_duration_entry.get())
-        start_date = cal_start.get_date()
-        end_date = cal_end.get_date()
+        
         # タスクに固有のIDを生成
         task_uuid = str(uuid.uuid4())
-  
-# もし元がdatetime.date型なら、datetime.datetime型に変換する
-        start_date = datetime.combine(start_date, datetime.min.time())  # datetime.date -> datetime.datetime
-        end_date = datetime.combine(end_date, datetime.min.time())  # datetime.date -> datetime.datetime
 
-# タイムゾーンを日本時間に設定
-        jst = pytz.timezone('Asia/Tokyo')
-        start_date_jst = jst.localize(start_date)
-        end_date_jst = jst.localize(end_date)
-
-# ISO形式の文字列に変換
-        start_date_iso = start_date_jst.isoformat()
-        end_date_iso = end_date_jst.isoformat()
+       
 
         task_info = {
         "task_uuid": task_uuid,
         "task_name": task_name,
-        "task_duration": task_duration,
-        "start_date": start_date_iso,  # ISO形式の文字列に変換された日付
-        "end_date": end_date_iso,
     }
         print(f"Adding task: {task_info}")  # デバッグ用の出力
 
@@ -236,28 +217,34 @@ def add_task():
         tasks.append(task_info)
         update_task_listbox()  # Update task listbox to reflect the new task
         task_entry.delete(0, ctk.END)  # Clear the task entry field
-        save_task_info(task_uuid, task_name, task_duration, start_date, end_date)  # Save the updated task list to a file or database
+        save_task_info(task_uuid, task_name)  # Save the updated task list to a file or database
 
-def save_task_info(task_uuid, task_name, task_duration, start_date, end_date):
+def save_task_info(task_uuid, task_name):
         # SQLiteデータベースに接続
         conn = sqlite3.connect('resource_manager.db')
         cursor = conn.cursor()
 
         # UUIDとイベントIDのマッピングをデータベースに挿入
         cursor.execute('''
-        INSERT INTO task_info (task_uuid, task_name, task_duration, start_date, end_date) VALUES (?, ?, ?, ?, ?)
-        ''', (task_uuid, task_name, task_duration, start_date, end_date))
+        INSERT INTO task_info (task_uuid, task_name) VALUES (?, ?)
+        ''', (task_uuid, task_name))
 
         # 変更を保存して接続を閉じます
         conn.commit()
         conn.close()
 
 def update_task_listbox():
-    task_listbox.delete(0, ctk.END)
+    todo_listbox.delete(0, ctk.END)
     for task in tasks:
         print(f"Current task: {task}")  # デバッグ用の出力
-        task_listbox.insert(ctk.END, f"{task['task_name']}")
-    
+        todo_listbox.insert(ctk.END, f"{task['task_name']}")
+
+def update_schedule_listbox():
+    todo_listbox.delete(0, ctk.END)
+    for task in tasks:
+        print(f"Current task: {task}")  # デバッグ用の出力
+        todo_listbox.insert(ctk.END, f"{task['task_name']}")
+
 def get_event_ids_by_uuid(uuid):
     """指定されたUUIDに関連するすべてのイベントIDを取得します。"""
     event_ids = []
@@ -277,7 +264,7 @@ def get_event_ids_by_uuid(uuid):
     return event_ids
 
 def delete_selected_task():
-    selected_task_index = task_listbox.curselection()
+    selected_task_index = shcedule_listbox.curselection()
     if selected_task_index:
         index = selected_task_index[0]  # 選択されたタスクのインデックス
         task_uuid = tasks[index]['task_uuid']  # UUIDを取得
@@ -361,9 +348,9 @@ def delete_google_calendar_event(service, event_id):
 
 # タスクリストを更新する関数
 def update_task_delete_listbox():
-    task_listbox.delete(0, ctk.END)
+    shcedule_listbox.delete(0, ctk.END)
     for task in tasks:
-        task_listbox.insert(ctk.END, f"{task['task_name']}")
+        shcedule_listbox.insert(ctk.END, f"{task['task_name']}")
 
 # タスクリストボックスを更新する関数
 
@@ -374,9 +361,11 @@ def update_task_delete_listbox():
 #     return label
 
 # タスク詳細を表示する関数
-def show_task_details(event):
+
+
+def show_scedule_details(event):
     # 選択されたタスクのインデックスを取得
-    selected_index = task_listbox.curselection()
+    selected_index = shcedule_listbox.curselection()
     if selected_index:
         index = selected_index[0]
         task = tasks[index]
@@ -384,79 +373,12 @@ def show_task_details(event):
         # ラベルにタスク詳細を表示
         details_text = f"タスク名: {task['task_name']}\n" \
                        f"タスクID: {task['task_uuid']}\n" \
-                       f"所要時間: {task['task_duration']} 分\n" \
-                       f"開始日: {task['start_date']}\n" \
-                       f"終了日: {task['end_date']}\n"
+                      
+                       
 
         details_label.configure(text=details_text)
         update_progress_bar()
 
-        
-def get_free_times(start_time, end_time, calendar_id="primary"):
-    
-  # 空き時間のリスト
-    free_times = []
-  # JST タイムゾーンを設定
-    jst = pytz.timezone('Asia/Tokyo')
-    
-    # 日本時間からUTCに変換(googlecalendarapiがutcじゃないと読み取らないらしい)
-    start_time_utc = start_time.astimezone(pytz.UTC)
-    end_time_utc = end_time.astimezone(pytz.UTC)
-    print(f"Request Body: {start_time_utc}")  # デバッグ用
-    # リクエストのボディを作成
-    request_body = {
-        "timeMin": start_time_utc.isoformat(),
-        "timeMax": end_time_utc.isoformat(),
-        "timeZone": "Asia/Tokyo",  # レスポンスのタイムゾーン
-        "items": [{"id": calendar_id}]
-    }
-    
-    print(f"Request Body: {request_body}")  # デバッグ用
-    
-    # freebusyリクエストを送信
-    freebusy_result = service.freebusy().query(body=request_body).execute()
-
-    busy_times = freebusy_result['calendars'][calendar_id]['busy']
-
-      # 予定のある時間帯を計算
-    busy_periods = []
-    for busy_period in busy_times:
-        start = busy_period['start']
-        end = busy_period['end']
-       
-
-        # 日本時間に変換
-        start_time_jst = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(jst)
-        end_time_jst = datetime.fromisoformat(end.replace("Z", "+00:00")).astimezone(jst)
-       
-
-        busy_periods.append((start_time_jst, end_time_jst))
-
-    # 予定のない時間帯を計算
-    busy_periods.sort()  # 予定のある時間帯をソート
-    current_start = start_time.astimezone(jst)
-    if end_time.tzinfo is None:
-        end_time = jst.localize(end_time)
-    for busy_start, busy_end in busy_periods:
-            # 確認用にタイムゾーンを比較
-        print(f"Current Start: {current_start}, Type: {type(current_start)}, TZ Info: {current_start.tzinfo}")
-        print(f"End Time: {end_time}, Type: {type(end_time)}, TZ Info: {end_time.tzinfo}")
-
-        # 現在の空き時間の終了が予定の開始より前であれば、その間が空き時間
-        if busy_start > current_start:
-            free_times.append((current_start, busy_start))
-        # 現在の空き時間の開始を予定の終了時間に更新
-        current_start = max(current_start, busy_end)
-
-    # 最後の空き時間を追加
-    if current_start < end_time:
-        free_times.append((current_start, end_time))
-        
-    # 空き時間を出力
-    for free_start, free_end in free_times:
-        print(f"空いている時間帯: start_time: {free_start} から end_time: {free_end}")
-
-    return free_times
 
 
 # イベント作成ウィンドウを作成する関数
@@ -473,7 +395,7 @@ def create_event_window():
     event_window.grid_rowconfigure(1, weight=1)
 
 
-    selected_index = task_listbox.curselection()
+    selected_index = todo_listbox.curselection()
     if selected_index:
         index = selected_index[0]
         task = tasks[index]
@@ -481,9 +403,7 @@ def create_event_window():
     # タスク詳細をイベント情報として表示
     event_details_text = f"イベント名: {task['task_name']}\n" \
                          f"タスクID: {task['task_uuid']}\n" \
-                         f"予定時間: {task['task_duration']} 分\n" \
-                         f"開始日: {task['start_date']}\n" \
-                         f"終了日: {task['end_date']}\n"
+                     
     
     event_details_label = ctk.CTkLabel(event_window, text=event_details_text, justify="left")
     event_details_label.grid(row=0, pady=20, padx=20)
@@ -523,24 +443,63 @@ def create_event_window():
         selected_color_id = get_selected_priority_label()
         print(f"Selected Priority Color ID: {selected_color_id}")
 
-
-
     # 優先度選択ラジオボタンの変数
     priority_var = ctk.StringVar(value="2")  # デフォルトは中
-
     # 優先度選択ラジオボタンの作成
     priority_label = ctk.CTkLabel(event_window, text="優先度を選択:")
     priority_label.grid(row=6, column=0, padx=10, pady=5)
-
     priority_high = ctk.CTkRadioButton(event_window, text="高", variable=priority_var, value="1", command=on_priority_change)
     priority_high.grid(row=6, column=1, padx=10, pady=5)
-
     priority_medium = ctk.CTkRadioButton(event_window, text="中", variable=priority_var, value="2", command=on_priority_change)
     priority_medium.grid(row=6, column=2, padx=10, pady=5)
-
     priority_low = ctk.CTkRadioButton(event_window, text="低", variable=priority_var, value="3", command=on_priority_change)
     priority_low.grid(row=6, column=3, padx=10, pady=5)
+    
+    task_duration_label = ctk.CTkLabel(event_window, text="Task Duration:")
+    task_duration_label.grid(row=0, column=2, padx=10, pady=5, sticky="w")
+    task_duration_entry = ctk.CTkEntry(event_window, width=50)
+    task_duration_entry.grid(row=0, column=3, padx=10, pady=5, sticky="ew")
 
+    cal_start_label = ctk.CTkLabel(event_window, text="Select Start Date:")
+    cal_start_label.grid(row=2, column=0, padx=10, pady=5, sticky="w")
+    cal_start = DateEntry(event_window, selectmode='day', year=2024, month=7, day=1, width=12, background='darkblue', foreground='white', borderwidth=2)
+    cal_start.grid(row=2, column=1, padx=10, pady=5, sticky="w")
+
+    cal_end_label = ctk.CTkLabel(event_window, text="Select End Date:")
+    cal_end_label.grid(row=3, column=0, padx=10, pady=5, sticky="w")
+    cal_end = DateEntry(event_window, selectmode='day', year=2024, month=7, day=1, width=12, background='darkblue', foreground='white', borderwidth=2)
+    cal_end.grid(row=3, column=1, padx=10, pady=5, sticky="w")
+
+    def get_task_duration():
+        """タスク所要時間を取得する関数"""
+        task_duration = task_duration_entry.get()
+        if task_duration.isdigit():
+            print(f"取得したタスク所要時間: {task_duration} 分")
+            return int(task_duration)
+        else:
+            print("無効な入力です。整数値を入力してください。")
+            return None
+        
+    def get_date_range():
+        """開始日と終了日を取得する関数"""
+        start_date = cal_start.get_date()
+        end_date = cal_end.get_date()
+        # もし元がdatetime.date型なら、datetime.datetime型に変換する
+        start_date = datetime.combine(start_date, datetime.min.time())  # datetime.date -> datetime.datetime
+        end_date = datetime.combine(end_date, datetime.min.time())  # datetime.date -> datetime.datetime
+
+# タイムゾーンを日本時間に設定
+        jst = pytz.timezone('Asia/Tokyo')
+        start_date_jst = jst.localize(start_date)
+        end_date_jst = jst.localize(end_date)
+
+# ISO形式の文字列に変換
+        start_date_iso = start_date_jst.isoformat()
+        end_date_iso = end_date_jst.isoformat()
+        # 日付の範囲を表示
+        print(f"取得した日付範囲: 開始日 {start_date}, 終了日 {end_date}")
+        
+        return start_date_iso, end_date_iso
 
     def get_selected_time_ranges():
         # 選択された時間範囲を取得
@@ -591,15 +550,9 @@ def create_event_window():
 
 
 
-    # 文字列をdatetimeオブジェクトに変換
-    start_time = datetime.fromisoformat(task['start_date'])
-    end_time = datetime.fromisoformat(task['end_date'])
-    print(f"Start Time: {start_time}, tzinfo: {start_time.tzinfo}")
-    print(f"End Time: {end_time}, tzinfo: {end_time.tzinfo}")
-    print(f"Request Body: {start_time}")  # デバッグ用
-    # 空き時間を取得
-    free_times = get_free_times(start_time, end_time)
 
+
+    
         #空き時間を表示（または他の処理に利用）
     # free_times_text = "空き時間:\n" + "\n".join(
     #     [f"開始: {start} 終了: {end}" for start, end in free_times]
@@ -607,7 +560,70 @@ def create_event_window():
     # free_times_label = ctk.CTkLabel(event_window, text=free_times_text, justify="left")
     # free_times_label.grid(pady=20, padx=20)
 
+    def get_free_times(calendar_id="primary"):
+        # 開始日と終了日を取得
+        start_date, end_date = get_date_range()
 
+        # 空き時間のリスト
+        free_times = []
+
+        # JST タイムゾーンを設定
+        jst = pytz.timezone('Asia/Tokyo')
+
+        # 文字列を datetime オブジェクトに変換
+        start_date_datetime = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S%z")
+        end_date_datetime = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S%z")
+
+        # UTC に変換
+        start_time_utc = start_date_datetime.astimezone(pytz.UTC)
+        end_time_utc = end_date_datetime.astimezone(pytz.UTC)
+
+        # Freebusy リクエストのボディを作成
+        request_body = {
+            "timeMin": start_time_utc.isoformat(),
+            "timeMax": end_time_utc.isoformat(),
+            "timeZone": "Asia/Tokyo",  # レスポンスのタイムゾーン
+            "items": [{"id": calendar_id}]
+        }
+
+        # Freebusy リクエストを送信
+        freebusy_result = service.freebusy().query(body=request_body).execute()
+
+        busy_times = freebusy_result['calendars'][calendar_id]['busy']
+
+        # 予定のある時間帯を計算
+        busy_periods = []
+        for busy_period in busy_times:
+            start = busy_period['start']
+            end = busy_period['end']
+
+            # 日本時間に変換
+            start_time_jst = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(jst)
+            end_time_jst = datetime.fromisoformat(end.replace("Z", "+00:00")).astimezone(jst)
+
+            busy_periods.append((start_time_jst, end_time_jst))
+
+        # 予定のない時間帯を計算
+        busy_periods.sort()  # 予定のある時間帯をソート
+        current_start = start_date_datetime.astimezone(jst)
+
+        for busy_start, busy_end in busy_periods:
+            # 予定のある時間帯の間に空き時間があれば追加
+            if busy_start > current_start:
+                free_times.append((current_start, busy_start))
+            
+            # 空き時間の開始を更新
+            current_start = max(current_start, busy_end)
+
+        # 最後の空き時間を追加
+        if current_start < end_date_datetime:
+            free_times.append((current_start, end_date_datetime))
+
+        # 空き時間を出力
+        for free_start, free_end in free_times:
+            print(f"空いている時間帯: start_time: {free_start} から end_time: {free_end}")
+
+        return free_times
 
         # タイムゾーンを設定
     jst = pytz.timezone('Asia/Tokyo')
@@ -623,7 +639,7 @@ def create_event_window():
         task_times = []
         min_duration = get_selected_min_duration()
         
- # min_durationをtimedeltaに変換
+       # min_durationをtimedeltaに変換
         min_duration_td = timedelta(minutes=min_duration)
         # 各選択された時間帯について処理
         for free_start, free_end in free_times:
@@ -671,7 +687,7 @@ def create_event_window():
 
     def check_available_time(task_times, task_duration_minutes):
             # タスクの所要時間を timedelta に変換
-            task_duration_minutes = task['task_duration']
+            task_duration_minutes = get_task_duration()
             task_duration = timedelta(minutes=task_duration_minutes)
 
             # 空いている時間帯の合計時間を計算
@@ -687,6 +703,15 @@ def create_event_window():
                 print(f"時間が足りません。{time_needed} が不足しています")
 
     def calculate_percentage(task_duration, total_free_time):
+        print(f"task_duration: {task_duration}, total_free_time: {total_free_time}")
+
+        if task_duration is None:
+            print("Error: task_duration is None")
+            return 0
+        if total_free_time is None or total_free_time == 0:
+            print("Error: total_free_time is None or 0")
+            return 0
+
         return (task_duration / total_free_time) * 100
 
     def format_duration(minutes):
@@ -722,8 +747,11 @@ def create_event_window():
         ax.legend(loc='upper right')
 
     def on_check_button_click():
+        start_date, end_date = get_date_range()
+        # 空き時間を取得
+        free_times = get_free_times()
         # ボタンがクリックされたときに呼ばれる関数
-        task_duration_minutes = task['task_duration']
+        task_duration_minutes = get_task_duration()
         selected_ranges = get_selected_time_ranges()
         min_duration = get_selected_min_duration()
         task_times = compare_time_ranges(selected_ranges, free_times, min_duration)
@@ -768,11 +796,14 @@ def create_event_window():
     select_button.grid(row=9, column=0, pady=20)
 
 
-    def add_events_to_google_calendar(service, task_times, task_name, task_uuid, selected_time_range, selected_priority, min_duration):
+    def add_events_to_google_calendar(service, filled_task_times, task_name, task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration):
         """Google Calendarに複数のイベントを追加し、同じUUIDでイベントIDをマッピングします。"""
+        print(f"start_date: {start_date}")
+        print(f"end_date: {end_date}")
+        print(f"selected_time_range: {selected_time_range}")
         # タスク条件を保存
-        save_task_conditions(task_uuid, selected_time_range, selected_priority, min_duration)
-        for start_time, end_time in task_times:
+        save_task_conditions(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration)
+        for start_time, end_time in filled_task_times:
             event = {
                 'summary': task_name,
                 'start': {
@@ -813,30 +844,35 @@ def create_event_window():
         conn.commit()
         conn.close()
 
-    def save_task_conditions(task_uuid, selected_time_range, selected_priority, min_duration):
+    def save_task_conditions(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration,):
         """タスクの条件をデータベースに保存します。"""
         conn = sqlite3.connect('resource_manager.db')
         cursor = conn.cursor()
+        print("Saving task conditions:")
+        print(f"task_uuid: {task_uuid}")
+        print(f"start_date: {start_date}")
+        
+        print(f"end_date: {end_date}")
         # selected_time_rangeを文字列形式に変換
         time_range_str = ', '.join([f"{start}-{end}" for start, end in selected_time_range])
     # 保存するデータの内容を表示
-        print("Saving task conditions:")
-        print(f"task_uuid: {task_uuid}")
+       
         print(f"selected_time_range: {time_range_str}")
         print(f"selected_priority: {selected_priority}")
         print(f"min_duration: {min_duration}")
+        print(f"min_duration: {task_duration}")
         # task_conditions テーブルにデータを挿入
         cursor.execute('''
-            INSERT OR REPLACE INTO task_conditions (task_uuid, selected_time_range, selected_priority, min_duration)
-            VALUES (?, ?, ?, ?)
-        ''', (task_uuid, time_range_str, selected_priority, min_duration))
+            INSERT OR REPLACE INTO task_conditions (task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (task_uuid, task_duration, start_date, end_date, time_range_str, selected_priority, min_duration))
 
         conn.commit()
         conn.close()
 
 
     def fill_available_time(task_times, task_duration_minutes):
-        task_duration_minutes = task['task_duration']
+        task_duration_minutes = get_task_duration()
      
         """空き時間にタスクを埋め込む時間帯を決定します。"""
         task_duration = timedelta(minutes=task_duration_minutes)
@@ -865,15 +901,22 @@ def create_event_window():
             return []          
         
     def on_insert_button_click():
+        free_times = get_free_times()
+        task_duration = get_task_duration()
+        start_date, end_date = get_date_range()
         selected_time_ranges = get_selected_time_ranges()
         min_duration = get_selected_min_duration()
         task_times = compare_time_ranges(selected_time_ranges, free_times, min_duration)
-        task_duration_minutes = task['task_duration']
+        
         selected_priority = get_selected_priority_label()
        # 空いている時間帯と所要時間を比較し、タスクを埋め込む
-        filled_task_times = fill_available_time(task_times, task_duration_minutes)
+        filled_task_times = fill_available_time(task_times, task_duration)
         if filled_task_times:
-           add_events_to_google_calendar(service, filled_task_times, task['task_name'],task['task_uuid'], selected_time_ranges, selected_priority, min_duration)
+            # ここでタスク名とUUIDを確認するためのデバッグプリントを追加
+            print(f"Task Name: {task.get('task_name', 'No task_name')}")
+            print(f"Task UUID: {task.get('task_uuid', 'No task_uuid')}")
+            add_events_to_google_calendar(service, filled_task_times, task['task_name'], task['task_uuid'], task_duration, start_date, end_date, selected_time_ranges, selected_priority, min_duration)
+
     test_button = ctk.CTkButton(event_window, text="test", command=get_free_times)
     test_button.grid(row=12, pady=20)
  
@@ -1002,30 +1045,22 @@ task_name_label = ctk.CTkLabel(task_management_frame, text="Task Name:")
 task_name_label.grid(row=0, column=0, padx=10, pady=5, sticky="w")
 task_entry = ctk.CTkEntry(task_management_frame, width=50)
 task_entry.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
-task_duration_label = ctk.CTkLabel(task_management_frame, text="Task Duration:")
-task_duration_label.grid(row=0, column=2, padx=10, pady=5, sticky="w")
-task_duration_entry = ctk.CTkEntry(task_management_frame, width=50)
-task_duration_entry.grid(row=0, column=3, padx=10, pady=5, sticky="ew")
+
 
 add_button = ctk.CTkButton(task_management_frame, text="Add Task", command=add_task)
 add_button.grid(row=1, column=0, padx=10, pady=5, sticky="w")
 
-cal_start_label = ctk.CTkLabel(task_management_frame, text="Select Start Date:")
-cal_start_label.grid(row=2, column=0, padx=10, pady=5, sticky="w")
+todo_listbox = tk.Listbox(task_management_frame, selectmode=tk.MULTIPLE, width=50, height=10)  
+todo_listbox.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
 
-cal_start = DateEntry(task_management_frame, selectmode='day', year=2024, month=7, day=1, width=12, background='darkblue', foreground='white', borderwidth=2)
-cal_start.grid(row=2, column=1, padx=10, pady=5, sticky="w")
-
-cal_end_label = ctk.CTkLabel(task_management_frame, text="Select End Date:")
-cal_end_label.grid(row=3, column=0, padx=10, pady=5, sticky="w")
-
-cal_end = DateEntry(task_management_frame, selectmode='day', year=2024, month=7, day=1, width=12, background='darkblue', foreground='white', borderwidth=2)
-cal_end.grid(row=3, column=1, padx=10, pady=5, sticky="w")
+# イベント作成ウィンドウを開くボタン
+create_event_button = ctk.CTkButton(task_management_frame, text="カレンダーに埋め込む", command=create_event_window)
+create_event_button.grid(row=3, column=0, pady=5, sticky="ew")
 
 
-# タスク一覧タブ
+# スケジュール一覧タブ
 task_list_frame = ctk.CTkFrame(notebook)
-notebook.add(task_list_frame, text="タスク一覧")
+notebook.add(task_list_frame, text="スケジュール一覧")
 
 # ウィンドウ全体にグリッドを設定
 task_list_frame.grid_columnconfigure(0, weight=1)  # 左カラム
@@ -1033,9 +1068,9 @@ task_list_frame.grid_columnconfigure(1, weight=3)  # 右カラムを大きくす
 task_list_frame.grid_rowconfigure(0, weight=1)
 task_list_frame.grid_rowconfigure(1, weight=1)
 
-task_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)  
-task_listbox.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
+shcedule_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)  
+shcedule_listbox.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
 # ボタンの設定
 delete_button = ctk.CTkButton(task_list_frame, text="タスク削除", command=delete_selected_task)
 delete_button.grid(row=10, column=0, columnspan=3, pady=20)
@@ -1044,9 +1079,7 @@ delete_button.grid(row=10, column=0, columnspan=3, pady=20)
 get_id_button = ctk.CTkButton(task_list_frame, text="タスク削除", command=get_all_mappings)
 get_id_button.grid(row=11, column=0, columnspan=3, pady=20)
 
-# イベント作成ウィンドウを開くボタン
-create_event_button = ctk.CTkButton(task_list_frame, text="カレンダーに埋め込む", command=create_event_window)
-create_event_button.grid(row=2, column=0, pady=5, sticky="ew")
+
 
 # タスク詳細を表示するラベル
 details_label = ctk.CTkLabel(
@@ -1064,7 +1097,7 @@ details_label.grid(row=0, column=1, padx=10, pady=(10, 0), sticky="nsew")
 
 # プログレスバーを更新する関数
 def update_progress_bar():
-    selected_task_index = task_listbox.curselection()
+    selected_task_index = shcedule_listbox.curselection()
     
     if selected_task_index:
         # プログレスバーを0にリセット
@@ -1124,11 +1157,12 @@ user_information_frame = ctk.CTkFrame(notebook)
 notebook.add(user_information_frame, text="ユーザ情報")
 
 # ダブルクリックイベントのバインディング
-task_listbox.bind('<Double-1>', show_task_details)
 
+shcedule_listbox.bind('<Double-1>', show_scedule_details)
 # タスクデータをロードして表示
 load_tasks()
 update_task_listbox()
+update_schedule_listbox()
 
 # メインループの開始
 app.mainloop()
