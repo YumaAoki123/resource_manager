@@ -11,14 +11,10 @@ import matplotlib.pyplot as plt
 import os.path
 import sys
 import pickle
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, date
 import pytz
 import uuid
 import sqlite3
-# タスクを保存するためのリスト
-tasks = []
-
-email = os.getenv('EMAIL')
 
 # DATA_FILE = 'tasks.json'
 
@@ -123,25 +119,6 @@ conn.close()
     # except FileNotFoundError:
     #     tasks = []
 
-def load_tasks():
-    conn = sqlite3.connect('resource_manager.db')
-    cursor = conn.cursor()
-    
-    # タスク情報をデータベースから読み込む
-    cursor.execute('SELECT task_uuid, task_name FROM task_info')
-    rows = cursor.fetchall()
-    
-    global tasks
-    tasks = []
-    
-    for row in rows:
-        task = {
-            "task_uuid": row[0],
-            "task_name": row[1],
-        }
-        tasks.append(task)
-    
-    conn.close()
 
 # タスクの所要時間と期間内の空き時間を比較するための関数。待ち時間に読み込み中のアニメーション。
 # class LoadingAnimation:
@@ -205,19 +182,9 @@ def add_task():
         # タスクに固有のIDを生成
         task_uuid = str(uuid.uuid4())
 
-       
-
-        task_info = {
-        "task_uuid": task_uuid,
-        "task_name": task_name,
-    }
-        print(f"Adding task: {task_info}")  # デバッグ用の出力
-
-        # Append the task dictionary to the task list
-        tasks.append(task_info)
-        update_task_listbox()  # Update task listbox to reflect the new task
-        task_entry.delete(0, ctk.END)  # Clear the task entry field
         save_task_info(task_uuid, task_name)  # Save the updated task list to a file or database
+        update_task_listbox(todo_listbox, schedule_manager)  # Update task listbox to reflect the new task
+        task_entry.delete(0, ctk.END)  # Clear the task entry field
 
 def save_task_info(task_uuid, task_name):
         # SQLiteデータベースに接続
@@ -233,17 +200,98 @@ def save_task_info(task_uuid, task_name):
         conn.commit()
         conn.close()
 
-def update_task_listbox():
-    todo_listbox.delete(0, ctk.END)
-    for task in tasks:
-        print(f"Current task: {task}")  # デバッグ用の出力
-        todo_listbox.insert(ctk.END, f"{task['task_name']}")
+class ScheduleManager:
+    def __init__(self, db_path='resource_manager.db'):
+        self.db_path = db_path
+        self.tasks = []
+        self.schedules = []
 
-def update_schedule_listbox():
+    def _connect(self):
+        return sqlite3.connect(self.db_path)
+
+    def load_tasks(self):
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT task_uuid, task_name FROM task_info')
+            rows = cursor.fetchall()
+            
+            self.tasks = []
+            for row in rows:
+                task = {
+                    "task_uuid": row[0],
+                    "task_name": row[1],
+                }
+                self.tasks.append(task)
+        finally:
+            conn.close()
+
+    def load_schedules(self):
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT task_uuid, task_duration, start_date, end_date FROM task_conditions')
+            rows = cursor.fetchall()
+            
+            self.schedules = []
+            for row in rows:
+                schedule = {
+                    "task_uuid": row[0],
+                    "task_duration": row[1],
+                    "start_date": row[2],
+                    "end_date": row[3]
+                }
+                self.schedules.append(schedule)
+        finally:
+            conn.close()
+
+    def get_tasks(self):
+        return self.tasks
+
+    def get_schedules(self):
+        return self.schedules
+
+    def get_tasks_without_conditions(self):
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT task_info.task_name
+                FROM task_info
+                LEFT JOIN task_conditions ON task_info.task_uuid = task_conditions.task_uuid
+                WHERE task_conditions.task_uuid IS NULL
+            ''')
+            tasks = cursor.fetchall()
+        finally:
+            conn.close()
+        return tasks
+
+    def get_scheduled_tasks(self):
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT ti.task_name, tc.task_uuid, tc.task_duration, tc.start_date, tc.end_date, tc.selected_time_range, tc.selected_priority, tc.min_duration
+                FROM task_info ti
+                JOIN task_conditions tc ON ti.task_uuid = tc.task_uuid
+            ''')
+            schedules = cursor.fetchall()
+        finally:
+            conn.close()
+        return schedules
+    
+def update_task_listbox(todo_listbox, schedule_manager):
     todo_listbox.delete(0, ctk.END)
+    tasks = schedule_manager.get_tasks_without_conditions()
     for task in tasks:
-        print(f"Current task: {task}")  # デバッグ用の出力
-        todo_listbox.insert(ctk.END, f"{task['task_name']}")
+        todo_listbox.insert(ctk.END, task[0])
+
+def update_schedule_listbox(schedule_listbox, schedule_manager):
+    schedule_listbox.delete(0, ctk.END)
+    tasks = schedule_manager.get_scheduled_tasks()
+    for task in tasks:
+        print(f"Current task: {task[0]}")  # デバッグ用の出力
+        schedule_listbox.insert(ctk.END, task[0])
 
 def get_event_ids_by_uuid(uuid):
     """指定されたUUIDに関連するすべてのイベントIDを取得します。"""
@@ -263,15 +311,19 @@ def get_event_ids_by_uuid(uuid):
     
     return event_ids
 
-def delete_selected_task():
-    selected_task_index = shcedule_listbox.curselection()
+def delete_selected_task(schedule_manager, service):
+    selected_task_index = schedule_listbox.curselection()
+    
     if selected_task_index:
         index = selected_task_index[0]  # 選択されたタスクのインデックス
-        task_uuid = tasks[index]['task_uuid']  # UUIDを取得
-        calendar_id = email  # カレンダーIDを設定
+        task_uuid = schedule_manager.get_task_uuid_by_index(index)  # UUIDを取得
+        
+        if not task_uuid:
+            print("UUIDを取得できませんでした。")
+            return
         
         # UUIDに基づいて関連するイベントIDを取得
-        event_ids = get_event_ids_by_uuid(task_uuid)
+        event_ids = schedule_manager.get_event_ids_by_uuid(task_uuid)
         
         if not event_ids:
             print("UUIDに関連するイベントIDが見つかりませんでした。")
@@ -285,22 +337,16 @@ def delete_selected_task():
 
         if delete_successful:
             # タスクをリストから削除
-            del tasks[index]
-            # データベースからUUIDに関連するイベントIDを削除
-            delete_event_ids_by_uuid(task_uuid)
+            schedule_manager.delete_task_by_uuid(task_uuid)
 
-            # データベースから該当するタスクを削除
-            delete_task_info_by_uuid(task_uuid)
-           
             # リストボックスを更新
-            update_task_delete_listbox()
-
-            
+            update_task_delete_listbox(schedule_manager)
             
         else:
             print("Googleカレンダーのイベント削除に失敗しました。")
     else:
         print("削除するタスクを選択してください。")
+
 
 #一連のdelete関連のトランザクションを後で実装する
 def delete_event_ids_by_uuid(uuid):
@@ -347,10 +393,16 @@ def delete_google_calendar_event(service, event_id):
 
 
 # タスクリストを更新する関数
-def update_task_delete_listbox():
-    shcedule_listbox.delete(0, ctk.END)
+def update_task_delete_listbox(schedule_manager):
+    # スケジュールリストボックスをクリア
+    schedule_listbox.delete(0, ctk.END)
+    
+    # スケジュールに関連するタスクを取得
+    tasks = schedule_manager.get_tasks_without_conditions()
+    
+    # タスク名をリストボックスに追加
     for task in tasks:
-        shcedule_listbox.insert(ctk.END, f"{task['task_name']}")
+        schedule_listbox.insert(ctk.END, f"{task[0]}")  # タスク名はタプルの0番目に入っている
 
 # タスクリストボックスを更新する関数
 
@@ -363,50 +415,63 @@ def update_task_delete_listbox():
 # タスク詳細を表示する関数
 
 
-def show_scedule_details(event):
+def show_schedule_details(event, schedule_manager):
     # 選択されたタスクのインデックスを取得
-    selected_index = shcedule_listbox.curselection()
+    selected_index = schedule_listbox.curselection()
+    
     if selected_index:
         index = selected_index[0]
-        task = tasks[index]
+        schedules = schedule_manager.get_scheduled_tasks()  # schedule_manager からスケジュールを取得
+        print("全スケジュール内容:", schedules)  # スケジュール内容を表示
         
-        # ラベルにタスク詳細を表示
-        details_text = f"タスク名: {task['task_name']}\n" \
-                       f"タスクID: {task['task_uuid']}\n" \
-                      
-                       
+        if index < len(schedules):  # インデックスが有効か確認
+            schedule = schedules[index]  # タプルを取得
+            
+            # タプルのインデックスに基づいてデータを取得
+            task_uuid = schedule[0]
+            task_name = schedule[1]
+            task_duration = schedule[2]
+            start_date = schedule[3]
+            end_date = schedule[4]
+       
 
-        details_label.configure(text=details_text)
-        update_progress_bar()
+            # ラベルにタスク詳細を表示
+            details_text = f"タスクID: {task_uuid}\n" \
+                           f"タスク名: {task_name}\n" \
+                           f"スケジュール時間: {task_duration}\n" \
+                           f"開始日: {start_date}\n" \
+                           f"終了日: {end_date}\n"\
+                          
+            
+            details_label.configure(text=details_text)
+            update_progress_bar(schedule_manager)  # プログレスバーを更新
+        else:
+            print("無効なインデックス:", index)
+    else:
+        print("スケジュールが選択されていません。")
 
 
 
 # イベント作成ウィンドウを作成する関数
-def create_event_window():
+def create_event_window(schedule_manager):
     # 新しいウィンドウを作成
     event_window = ctk.CTk()
     event_window.title("イベント作成")
     event_window.geometry("800x500")
-
-        # ウィンドウ全体にグリッドを設定
-    event_window.grid_columnconfigure(0, weight=1)  # 左カラム
-    event_window.grid_columnconfigure(1, weight=3)  # 右カラムを大きくする
-    event_window.grid_rowconfigure(0, weight=1)
-    event_window.grid_rowconfigure(1, weight=1)
-
-
+   
+    # `get_tasks_without_conditions` を使って、表示されているタスク情報を取得する
+    tasks = schedule_manager.get_tasks_without_conditions()
+    
     selected_index = todo_listbox.curselection()
     if selected_index:
         index = selected_index[0]
-        task = tasks[index]
-
-    # タスク詳細をイベント情報として表示
-    event_details_text = f"イベント名: {task['task_name']}\n" \
-                         f"タスクID: {task['task_uuid']}\n" \
-                     
-    
-    event_details_label = ctk.CTkLabel(event_window, text=event_details_text, justify="left")
-    event_details_label.grid(row=0, pady=20, padx=20)
+        
+        if 0 <= index < len(tasks):
+            task = tasks[index]
+            # タスク詳細をイベント情報として表示
+            event_details_text = f"イベント名: {task[0]}\n"  # `task[0]` はタスク名
+            event_window_label = ctk.CTkLabel(event_window, text=event_details_text)
+            event_window_label.grid(pady=10)
 
     def get_selected_min_duration():
     # Entryの値を取得し、整数に変換
@@ -417,15 +482,6 @@ def create_event_window():
         else:
             print("無効な入力です。整数値を入力してください。")
             return None
-        
-
-    min_duration_label = ctk.CTkLabel(event_window, text="最小空き時間 (分):")
-    min_duration_label.grid(row=7, column=0, padx=10, pady=5)
-
-    min_duration_entry = ctk.CTkEntry(event_window)
-    min_duration_entry.grid(row=7, column=1, padx=10, pady=5)
-    min_duration_entry.insert(0, "30")  # デフォルト値を設定
-
     def get_selected_priority_label():
         # 現在選択されているラジオボタンの値を取得
         selected_value = priority_var.get()
@@ -443,32 +499,45 @@ def create_event_window():
         selected_color_id = get_selected_priority_label()
         print(f"Selected Priority Color ID: {selected_color_id}")
 
+    # 現在の日付を取得
+    today = date.today()
+
+    # ラベルの追加
+    cal_range_label = ctk.CTkLabel(event_window, text="Select Date Range:")
+    cal_range_label.grid(row=1, column=0, padx=10, pady=5, sticky="w")
+
+    # 開始日付のDateEntry（デフォルトを今日に設定）
+    cal_start = DateEntry(event_window, selectmode='day', year=today.year, month=today.month, day=today.day, width=12, background='darkblue', foreground='white', borderwidth=2)
+    cal_start.grid(row=1, column=1, padx=10, pady=5, sticky="w")
+
+    # 終了日付のDateEntry（デフォルトを今日に設定）
+    cal_end = DateEntry(event_window, selectmode='day', year=today.year, month=today.month, day=today.day, width=12, background='darkblue', foreground='white', borderwidth=2)
+    cal_end.grid(row=1, column=2, padx=10, pady=5, sticky="w")
+
+    task_duration_label = ctk.CTkLabel(event_window, text="Task Duration:")
+    task_duration_label.grid(row=3, column=0, padx=10, pady=5, sticky="w")
+    task_duration_entry = ctk.CTkEntry(event_window, width=50)
+    task_duration_entry.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
+
+    min_duration_label = ctk.CTkLabel(event_window, text="最小空き時間 (分):")
+    min_duration_label.grid(row=4, column=0, padx=10, pady=5)
+    min_duration_entry = ctk.CTkEntry(event_window)
+    min_duration_entry.grid(row=4, column=1, padx=10, pady=5)
+    min_duration_entry.insert(0, "30")  # デフォルト値を設定
+
     # 優先度選択ラジオボタンの変数
     priority_var = ctk.StringVar(value="2")  # デフォルトは中
     # 優先度選択ラジオボタンの作成
     priority_label = ctk.CTkLabel(event_window, text="優先度を選択:")
-    priority_label.grid(row=6, column=0, padx=10, pady=5)
+    priority_label.grid(row=5, column=0, padx=10, pady=5)
     priority_high = ctk.CTkRadioButton(event_window, text="高", variable=priority_var, value="1", command=on_priority_change)
-    priority_high.grid(row=6, column=1, padx=10, pady=5)
+    priority_high.grid(row=5, column=1, padx=10, pady=5)
     priority_medium = ctk.CTkRadioButton(event_window, text="中", variable=priority_var, value="2", command=on_priority_change)
-    priority_medium.grid(row=6, column=2, padx=10, pady=5)
+    priority_medium.grid(row=5, column=2, padx=10, pady=5)
     priority_low = ctk.CTkRadioButton(event_window, text="低", variable=priority_var, value="3", command=on_priority_change)
-    priority_low.grid(row=6, column=3, padx=10, pady=5)
-    
-    task_duration_label = ctk.CTkLabel(event_window, text="Task Duration:")
-    task_duration_label.grid(row=0, column=2, padx=10, pady=5, sticky="w")
-    task_duration_entry = ctk.CTkEntry(event_window, width=50)
-    task_duration_entry.grid(row=0, column=3, padx=10, pady=5, sticky="ew")
+    priority_low.grid(row=5, column=3, padx=10, pady=5)
 
-    cal_start_label = ctk.CTkLabel(event_window, text="Select Start Date:")
-    cal_start_label.grid(row=2, column=0, padx=10, pady=5, sticky="w")
-    cal_start = DateEntry(event_window, selectmode='day', year=2024, month=7, day=1, width=12, background='darkblue', foreground='white', borderwidth=2)
-    cal_start.grid(row=2, column=1, padx=10, pady=5, sticky="w")
 
-    cal_end_label = ctk.CTkLabel(event_window, text="Select End Date:")
-    cal_end_label.grid(row=3, column=0, padx=10, pady=5, sticky="w")
-    cal_end = DateEntry(event_window, selectmode='day', year=2024, month=7, day=1, width=12, background='darkblue', foreground='white', borderwidth=2)
-    cal_end.grid(row=3, column=1, padx=10, pady=5, sticky="w")
 
     def get_task_duration():
         """タスク所要時間を取得する関数"""
@@ -527,16 +596,16 @@ def create_event_window():
 
         # 時間帯ラベル
         range_label = ttk.Label(event_window, text=f"時間帯 {row_index}")
-        range_label.grid(row=1+row_index, column=0, padx=10, pady=5)
+        range_label.grid(row=6+row_index, column=0, padx=10, pady=5)
 
         # 開始時間のコンボボックス
         start_combobox = ttk.Combobox(event_window, values=time_options)
-        start_combobox.grid(row=1+row_index, column=1, padx=10, pady=5)
+        start_combobox.grid(row=6+row_index, column=1, padx=10, pady=5)
         start_combobox.current(0)
 
         # 終了時間のコンボボックス
         end_combobox = ttk.Combobox(event_window, values=time_options)
-        end_combobox.grid(row=1+row_index, column=2, padx=10, pady=5)
+        end_combobox.grid(row=6+row_index, column=2, padx=10, pady=5)
         end_combobox.current(0)
 
         time_range_comboboxes.append((start_combobox, end_combobox))
@@ -546,11 +615,7 @@ def create_event_window():
 
     # 時間範囲を追加するボタン
     add_range_button = ttk.Button(event_window, text="時間範囲を追加", command=add_time_range)
-    add_range_button.grid(row=5, column=0, columnspan=3, pady=10)
-
-
-
-
+    add_range_button.grid(row=7, column=0, columnspan=3, pady=10)
 
     
         #空き時間を表示（または他の処理に利用）
@@ -785,15 +850,15 @@ def create_event_window():
     # Figureをキャンバスに埋め込む
     canvas = FigureCanvasTkAgg(fig, master=event_window)
     canvas.draw()
-    canvas.get_tk_widget().grid(row=0, column=4, columnspan=3, padx=20, pady=10)  # ボタンの右側にグラフを表示
+    canvas.get_tk_widget().grid(row=13, column=0, columnspan=3, padx=20, pady=10)  # ボタンの右側にグラフを表示
 
     # 時間の差を表示するラベルを作成（初期は空）
     difference_label = ctk.CTkLabel(event_window, text="")
-    difference_label.grid(row=11, column=1, padx=20, pady=5)
+    difference_label.grid(row=11, column=0, padx=20, pady=5)
 
     # 選択した時間範囲を取得するボタン
     select_button = ctk.CTkButton(event_window, text="空き時間検索", command=on_check_button_click)
-    select_button.grid(row=9, column=0, pady=20)
+    select_button.grid(row=10, column=0, pady=20)
 
 
     def add_events_to_google_calendar(service, filled_task_times, task_name, task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration):
@@ -901,30 +966,34 @@ def create_event_window():
             return []          
         
     def on_insert_button_click():
-        free_times = get_free_times()
-        task_duration = get_task_duration()
-        start_date, end_date = get_date_range()
-        selected_time_ranges = get_selected_time_ranges()
-        min_duration = get_selected_min_duration()
-        task_times = compare_time_ranges(selected_time_ranges, free_times, min_duration)
-        
-        selected_priority = get_selected_priority_label()
-       # 空いている時間帯と所要時間を比較し、タスクを埋め込む
-        filled_task_times = fill_available_time(task_times, task_duration)
-        if filled_task_times:
-            # ここでタスク名とUUIDを確認するためのデバッグプリントを追加
-            print(f"Task Name: {task.get('task_name', 'No task_name')}")
-            print(f"Task UUID: {task.get('task_uuid', 'No task_uuid')}")
-            add_events_to_google_calendar(service, filled_task_times, task['task_name'], task['task_uuid'], task_duration, start_date, end_date, selected_time_ranges, selected_priority, min_duration)
+        if schedule_manager.selected_task_name and schedule_manager.selected_task_uuid:
+            free_times = get_free_times()
+            task_duration = get_task_duration()
+            start_date, end_date = get_date_range()
+            selected_time_ranges = get_selected_time_ranges()
+            min_duration = get_selected_min_duration()
+            task_times = compare_time_ranges(selected_time_ranges, free_times, min_duration)
+            
+            selected_priority = get_selected_priority_label()
+        # 空いている時間帯と所要時間を比較し、タスクを埋め込む
+            filled_task_times = fill_available_time(task_times, task_duration)
+            if filled_task_times:
+                
+                add_events_to_google_calendar(service, filled_task_times, schedule_manager.selected_task_name, schedule_manager.selected_task_uuid, task_duration, start_date, end_date, selected_time_ranges, selected_priority, min_duration)
+                update_task_listbox(todo_listbox, schedule_manager)
+                update_schedule_listbox(schedule_listbox, schedule_manager)
+
+ # Googleカレンダーに追加するボタン
+    add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加", command=on_insert_button_click)
+    add_event_button.grid(row=12, column=0, pady=20)
 
     test_button = ctk.CTkButton(event_window, text="test", command=get_free_times)
-    test_button.grid(row=12, pady=20)
+    test_button.grid(row=12, column=1, pady=20)
  
-    # Googleカレンダーに追加するボタン
-    add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加", command=on_insert_button_click)
-    add_event_button.grid(row=11, pady=20)
+   
 
     event_window.mainloop()
+
     
 def get_all_mappings():
     """SQLiteデータベースから全てのUUID、イベントID、サマリー、開始時間、終了時間のマッピングを取得して表示します。"""
@@ -1053,9 +1122,11 @@ add_button.grid(row=1, column=0, padx=10, pady=5, sticky="w")
 todo_listbox = tk.Listbox(task_management_frame, selectmode=tk.MULTIPLE, width=50, height=10)  
 todo_listbox.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
 
+def on_create_event_button_click():
+    create_event_window(schedule_manager)  # schedule_manager を渡す
 # イベント作成ウィンドウを開くボタン
-create_event_button = ctk.CTkButton(task_management_frame, text="カレンダーに埋め込む", command=create_event_window)
-create_event_button.grid(row=3, column=0, pady=5, sticky="ew")
+create_event_button = ctk.CTkButton(task_management_frame, text="カレンダーに埋め込む", command=on_create_event_button_click)
+create_event_button.grid(row=3, padx=20, pady=10)
 
 
 # スケジュール一覧タブ
@@ -1069,8 +1140,8 @@ task_list_frame.grid_rowconfigure(0, weight=1)
 task_list_frame.grid_rowconfigure(1, weight=1)
 
 
-shcedule_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)  
-shcedule_listbox.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
+schedule_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)  
+schedule_listbox.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
 # ボタンの設定
 delete_button = ctk.CTkButton(task_list_frame, text="タスク削除", command=delete_selected_task)
 delete_button.grid(row=10, column=0, columnspan=3, pady=20)
@@ -1096,8 +1167,8 @@ details_label.grid(row=0, column=1, padx=10, pady=(10, 0), sticky="nsew")
 
 
 # プログレスバーを更新する関数
-def update_progress_bar():
-    selected_task_index = shcedule_listbox.curselection()
+def update_progress_bar(schedule_manager):
+    selected_task_index = schedule_listbox.curselection()
     
     if selected_task_index:
         # プログレスバーを0にリセット
@@ -1106,10 +1177,11 @@ def update_progress_bar():
 
         # 選択されたタスクのUUIDを取得
         index = selected_task_index[0]
-        task_uuid = tasks[index]['task_uuid']  # 例としてtasksリストからUUIDを取得
+        schedules = schedule_manager.get_schedules()  # schedule_manager からスケジュールを取得
+        task_uuid = schedules[index]['task_uuid']  # スケジュールからUUIDを取得
         
         # 選択されたタスクのtask_durationも取得
-        task_duration = tasks[index]['task_duration']  # 例としてtasksリストからtask_durationを取得
+        task_duration = schedules[index]['task_duration']  # スケジュールからtask_durationを取得
 
         # タスク時間を取得
         task_times = fetch_task_times_and_duration(task_uuid)
@@ -1125,6 +1197,7 @@ def update_progress_bar():
 
     else:
         print("タスクが選択されていません。")
+
 
 def animate_progress_bar(target_progress):
     current_progress = progress_bar.get()
@@ -1158,11 +1231,18 @@ notebook.add(user_information_frame, text="ユーザ情報")
 
 # ダブルクリックイベントのバインディング
 
-shcedule_listbox.bind('<Double-1>', show_scedule_details)
+schedule_listbox.bind('<Double-1>', lambda event: show_schedule_details(event, schedule_manager))
 # タスクデータをロードして表示
-load_tasks()
-update_task_listbox()
-update_schedule_listbox()
+
+# ScheduleManager のインスタンスを作成
+schedule_manager = ScheduleManager()
+
+schedule_manager.load_tasks()
+# update_task_listbox に schedule_manager を渡して呼び出す
+update_task_listbox(todo_listbox, schedule_manager)
+
+schedule_manager.load_schedules()
+update_schedule_listbox(schedule_listbox, schedule_manager)
 
 # メインループの開始
 app.mainloop()
