@@ -183,7 +183,7 @@ def add_task():
         task_uuid = str(uuid.uuid4())
 
         save_task_info(task_uuid, task_name)  # Save the updated task list to a file or database
-        update_task_listbox(todo_listbox, schedule_manager)  # Update task listbox to reflect the new task
+        update_todo_listbox(todo_listbox, schedule_manager)  # Update task listbox to reflect the new task
         task_entry.delete(0, ctk.END)  # Clear the task entry field
 
 def save_task_info(task_uuid, task_name):
@@ -245,28 +245,22 @@ class ScheduleManager:
         finally:
             conn.close()
 
-    def get_tasks(self):
-        return self.tasks
-
-    def get_schedules(self):
-        return self.schedules
-
     def get_tasks_without_conditions(self):
         conn = self._connect()
         try:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT task_info.task_name
-                FROM task_info
-                LEFT JOIN task_conditions ON task_info.task_uuid = task_conditions.task_uuid
-                WHERE task_conditions.task_uuid IS NULL
-            ''')
+            SELECT task_info.task_uuid, task_info.task_name
+            FROM task_info
+            LEFT JOIN task_conditions ON task_info.task_uuid = task_conditions.task_uuid
+            WHERE task_conditions.task_uuid IS NULL
+        ''')
             tasks = cursor.fetchall()
         finally:
             conn.close()
         return tasks
 
-    def get_scheduled_tasks(self):
+    def get_schedules(self):
         conn = self._connect()
         try:
             cursor = conn.cursor()
@@ -280,104 +274,199 @@ class ScheduleManager:
             conn.close()
         return schedules
     
-def update_task_listbox(todo_listbox, schedule_manager):
+    def get_event_ids_by_uuid(self, task_uuid):
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT event_id
+                FROM event_mappings
+                WHERE task_uuid = ?
+            ''', (task_uuid,))
+            rows = cursor.fetchall()
+            
+            # event_id のリストを生成
+            event_ids = [row[0] for row in rows]
+            
+        finally:
+            conn.close()
+        
+        return event_ids
+    
+    def delete_task_by_uuid(self, task_uuid):
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            
+            # トランザクションを開始
+            conn.execute('BEGIN')
+            
+            # event_mappings テーブルから task_uuid に関連するイベント ID を削除
+            cursor.execute('''
+                DELETE FROM event_mappings
+                WHERE task_uuid = ?
+            ''', (task_uuid,))
+            
+            # task_conditions テーブルから task_uuid に関連する条件を削除
+            cursor.execute('''
+                DELETE FROM task_conditions
+                WHERE task_uuid = ?
+            ''', (task_uuid,))
+            
+            # task_info テーブルから task_uuid に関連するタスク情報を削除
+            cursor.execute('''
+                DELETE FROM task_info
+                WHERE task_uuid = ?
+            ''', (task_uuid,))
+            
+            # コミットして変更を保存
+            conn.commit()
+        
+        except Exception as e:
+            # エラーが発生した場合はロールバック
+            conn.rollback()
+            print(f"タスク削除中にエラーが発生しました: {e}")
+        
+        finally:
+            conn.close()
+
+    def delete_todo_task_by_uuid(self, task_uuid):
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            # task_infoからタスクを削除
+            cursor.execute('DELETE FROM task_info WHERE task_uuid = ?', (task_uuid,))
+            
+            # 念のため、task_conditionsや他の関連テーブルにも削除処理を追加することができます
+            # 例えば: cursor.execute('DELETE FROM task_conditions WHERE task_uuid = ?', (task_uuid,))
+            
+            conn.commit()
+        finally:
+            conn.close()
+    
+#debug
+    def get_task_info(self):
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM task_info')
+            tasks = cursor.fetchall()
+        finally:
+            conn.close()
+        return tasks
+
+    def get_task_conditions(self):
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM task_conditions')
+            conditions = cursor.fetchall()
+        finally:
+            conn.close()
+        return conditions
+
+    def get_event_mappings(self):
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM event_mappings')
+            mappings = cursor.fetchall()
+        finally:
+            conn.close()
+        return mappings
+
+def show_table_contents(schedule_manager):
+    # テーブルの内容を取得
+    task_info = schedule_manager.get_task_info()
+    task_conditions = schedule_manager.get_task_conditions()
+    event_mappings = schedule_manager.get_event_mappings()
+
+    # 結果を表示
+    print("task_info テーブルの内容:")
+    for row in task_info:
+        print(row)
+
+    print("\ntask_conditions テーブルの内容:")
+    for row in task_conditions:
+        print(row)
+
+    print("\nevent_mappings テーブルの内容:")
+    for row in event_mappings:
+        print(row)
+
+
+
+
+
+def update_todo_listbox(todo_listbox, schedule_manager):
     todo_listbox.delete(0, ctk.END)
     tasks = schedule_manager.get_tasks_without_conditions()
     for task in tasks:
-        todo_listbox.insert(ctk.END, task[0])
+        todo_listbox.insert(ctk.END, task[1])
 
 def update_schedule_listbox(schedule_listbox, schedule_manager):
     schedule_listbox.delete(0, ctk.END)
-    tasks = schedule_manager.get_scheduled_tasks()
-    for task in tasks:
-        print(f"Current task: {task[0]}")  # デバッグ用の出力
-        schedule_listbox.insert(ctk.END, task[0])
+    schedules = schedule_manager.get_schedules()
+    for schedule in schedules:
+        print(f"Current task: {schedule[0]}")  # デバッグ用の出力
+        schedule_listbox.insert(ctk.END, schedule[0])
 
-def get_event_ids_by_uuid(uuid):
-    """指定されたUUIDに関連するすべてのイベントIDを取得します。"""
-    event_ids = []
-    try:
-        # SQLiteデータベースに接続
-        conn = sqlite3.connect('resource_manager.db')
-        cursor = conn.cursor()
-        
-        # UUIDに基づくイベントIDの取得
-        cursor.execute("SELECT event_id FROM event_mappings WHERE task_uuid = ?", (uuid,))
-        event_ids = [row[0] for row in cursor.fetchall()]
-        
-        conn.close()
-    except sqlite3.Error as e:
-        print(f"データベースエラー: {e}")
+def delete_todo_task(schedule_manager, todo_listbox):
+    # 選択されたタスクのインデックスを取得
+    selected_task_index = todo_listbox.curselection()
     
-    return event_ids
+    if selected_task_index:
+        # 選択されたインデックスからタスク情報を取得
+        index = selected_task_index[0]
+        tasks = schedule_manager.get_tasks_without_conditions()
+        selected_task = tasks[index]
+
+        # タスクUUIDを取得し、削除
+        task_uuid = selected_task[0]
+        schedule_manager.delete_todo_task_by_uuid(task_uuid)
+
+        # リストボックスを更新
+        update_todo_listbox(todo_listbox, schedule_manager)
+    else:
+        print("削除するタスクを選択してください。")
 
 def delete_selected_task(schedule_manager, service):
     selected_task_index = schedule_listbox.curselection()
     
     if selected_task_index:
         index = selected_task_index[0]  # 選択されたタスクのインデックス
-        task_uuid = schedule_manager.get_task_uuid_by_index(index)  # UUIDを取得
+        schedules = schedule_manager.get_schedules()  # スケジュールを取得
         
-        if not task_uuid:
-            print("UUIDを取得できませんでした。")
-            return
-        
-        # UUIDに基づいて関連するイベントIDを取得
-        event_ids = schedule_manager.get_event_ids_by_uuid(task_uuid)
-        
-        if not event_ids:
-            print("UUIDに関連するイベントIDが見つかりませんでした。")
-            return
+        if 0 <= index < len(schedules):
+            selected_schedule = schedules[index]
+            task_uuid = selected_schedule[1]  # スケジュールから task_uuid を取得
+            # UUIDに基づいて event_mappings テーブルからイベントIDを取得
+            event_ids = schedule_manager.get_event_ids_by_uuid(task_uuid)
 
-        # Googleカレンダーのイベントを削除
-        delete_successful = True
-        for event_id in event_ids:
-            if not delete_google_calendar_event(service, event_id):
-                delete_successful = False
-
-        if delete_successful:
-            # タスクをリストから削除
-            schedule_manager.delete_task_by_uuid(task_uuid)
-
-            # リストボックスを更新
-            update_task_delete_listbox(schedule_manager)
+            if not event_ids:
+                print("UUIDに関連するイベントIDが見つかりませんでした")
+                return
             
+            # Googleカレンダーのイベントを削除
+            delete_successful = True
+            for event_id in event_ids:
+                if not delete_google_calendar_event(service, event_id):
+                    delete_successful = False
+
+            if delete_successful:
+                # タスクをリストから削除
+                schedule_manager.delete_task_by_uuid(task_uuid)
+
+                # リストボックスを更新
+                update_task_delete_listbox(schedule_manager)
+                
+            else:
+                print("Googleカレンダーのイベント削除に失敗しました。")
         else:
-            print("Googleカレンダーのイベント削除に失敗しました。")
+            print("無効なタスクが選択されました。")
     else:
         print("削除するタスクを選択してください。")
 
-
-#一連のdelete関連のトランザクションを後で実装する
-def delete_event_ids_by_uuid(uuid):
-    """指定されたUUIDに関連するすべてのイベントIDをデータベースから削除します。"""
-    try:
-        # SQLiteデータベースに接続
-        conn = sqlite3.connect('resource_manager.db')
-        cursor = conn.cursor()
-
-        # UUIDに基づくイベントIDの削除
-        cursor.execute("DELETE FROM event_mappings WHERE task_uuid = ?", (uuid,))
-        conn.commit()
-        print(f"UUID {uuid} に関連するイベントIDがデータベースから削除されました。")
-
-        conn.close()
-    except sqlite3.Error as e:
-        print(f"データベースエラー: {e}")
-
-def delete_task_info_by_uuid(task_uuid):
-    # データベースに接続
-    conn = sqlite3.connect('resource_manager.db')
-    cursor = conn.cursor()
-
-    # `task_info`テーブルからUUIDに関連するタスクを削除
-    cursor.execute('''
-    DELETE FROM task_info WHERE task_uuid = ?
-    ''', (task_uuid,))
-    
-    # 変更を保存して接続を閉じる
-    conn.commit()
-    conn.close()
 
 def delete_google_calendar_event(service, event_id):
     try:
@@ -392,17 +481,13 @@ def delete_google_calendar_event(service, event_id):
 
 
 
-# タスクリストを更新する関数
 def update_task_delete_listbox(schedule_manager):
-    # スケジュールリストボックスをクリア
     schedule_listbox.delete(0, ctk.END)
-    
-    # スケジュールに関連するタスクを取得
-    tasks = schedule_manager.get_tasks_without_conditions()
-    
-    # タスク名をリストボックスに追加
-    for task in tasks:
-        schedule_listbox.insert(ctk.END, f"{task[0]}")  # タスク名はタプルの0番目に入っている
+    schedules = schedule_manager.get_schedules()
+    for schedule in schedules:
+        print(f"Current task: {schedule[0]}")  # デバッグ用の出力
+        schedule_listbox.insert(ctk.END, schedule[0])
+
 
 # タスクリストボックスを更新する関数
 
@@ -421,26 +506,38 @@ def show_schedule_details(event, schedule_manager):
     
     if selected_index:
         index = selected_index[0]
-        schedules = schedule_manager.get_scheduled_tasks()  # schedule_manager からスケジュールを取得
+        schedules = schedule_manager.get_schedules()  # schedule_manager からスケジュールを取得
         print("全スケジュール内容:", schedules)  # スケジュール内容を表示
         
         if index < len(schedules):  # インデックスが有効か確認
             schedule = schedules[index]  # タプルを取得
             
             # タプルのインデックスに基づいてデータを取得
-            task_uuid = schedule[0]
-            task_name = schedule[1]
+            task_name = schedule[0]
+            task_uuid = schedule[1]
             task_duration = schedule[2]
             start_date = schedule[3]
             end_date = schedule[4]
-       
-
+            time_ranges = schedule[5]
+            
+            
+            # 優先度を判定し、表示内容を決定
+            if schedule[6] == 11:
+                selected_priority = "高"
+            elif schedule[6] == 2:
+                selected_priority = "中"
+            elif schedule[6] == 7:
+                selected_priority = "低"
+            else:
+                selected_priority = str(schedule[6])
             # ラベルにタスク詳細を表示
             details_text = f"タスクID: {task_uuid}\n" \
                            f"タスク名: {task_name}\n" \
                            f"スケジュール時間: {task_duration}\n" \
                            f"開始日: {start_date}\n" \
                            f"終了日: {end_date}\n"\
+                           f"時間帯: {time_ranges}\n"\
+                           f"優先度: {selected_priority}\n"\
                           
             
             details_label.configure(text=details_text)
@@ -454,24 +551,38 @@ def show_schedule_details(event, schedule_manager):
 
 # イベント作成ウィンドウを作成する関数
 def create_event_window(schedule_manager):
-    # 新しいウィンドウを作成
-    event_window = ctk.CTk()
-    event_window.title("イベント作成")
-    event_window.geometry("800x500")
-   
-    # `get_tasks_without_conditions` を使って、表示されているタスク情報を取得する
-    tasks = schedule_manager.get_tasks_without_conditions()
-    
+    # 選択されたタスクのインデックスを取得
     selected_index = todo_listbox.curselection()
+    
     if selected_index:
         index = selected_index[0]
         
+        # `get_tasks_without_conditions` を使って、表示されているタスク情報を取得する
+        tasks = schedule_manager.get_tasks_without_conditions()
+        
         if 0 <= index < len(tasks):
-            task = tasks[index]
+            task_uuid, task_name = tasks[index]
+
+            # 選択されたタスクの名前とUUIDをスケジュールマネージャに保存
+            schedule_manager.selected_task_uuid = task_uuid
+            schedule_manager.selected_task_name = task_name
+
+            # 新しいウィンドウを作成
+            event_window = ctk.CTk()
+            event_window.title("イベント作成")
+            event_window.geometry("800x500")
+            
             # タスク詳細をイベント情報として表示
-            event_details_text = f"イベント名: {task[0]}\n"  # `task[0]` はタスク名
+            event_details_text = f"イベント名: {task_name}\n"  # `task[1]` はタスク名
             event_window_label = ctk.CTkLabel(event_window, text=event_details_text)
             event_window_label.grid(pady=10)
+            
+            # 他のウィジェットの作成やイベントの追加処理をここに記述
+            
+        else:
+            print("タスクのインデックスが不正です")
+    else:
+        print("タスクを選択してください")
 
     def get_selected_min_duration():
     # Entryの値を取得し、整数に変換
@@ -966,6 +1077,7 @@ def create_event_window(schedule_manager):
             return []          
         
     def on_insert_button_click():
+        # 選択されたタスクの名前とUUIDがある場合のみ実行
         if schedule_manager.selected_task_name and schedule_manager.selected_task_uuid:
             free_times = get_free_times()
             task_duration = get_task_duration()
@@ -973,15 +1085,28 @@ def create_event_window(schedule_manager):
             selected_time_ranges = get_selected_time_ranges()
             min_duration = get_selected_min_duration()
             task_times = compare_time_ranges(selected_time_ranges, free_times, min_duration)
-            
+
             selected_priority = get_selected_priority_label()
-        # 空いている時間帯と所要時間を比較し、タスクを埋め込む
+
+            # 空いている時間帯と所要時間を比較し、タスクを埋め込む
             filled_task_times = fill_available_time(task_times, task_duration)
             if filled_task_times:
-                
-                add_events_to_google_calendar(service, filled_task_times, schedule_manager.selected_task_name, schedule_manager.selected_task_uuid, task_duration, start_date, end_date, selected_time_ranges, selected_priority, min_duration)
-                update_task_listbox(todo_listbox, schedule_manager)
+                add_events_to_google_calendar(
+                    service,
+                    filled_task_times,
+                    schedule_manager.selected_task_name,
+                    schedule_manager.selected_task_uuid,
+                    task_duration,
+                    start_date,
+                    end_date,
+                    selected_time_ranges,
+                    selected_priority,
+                    min_duration
+                )
+                update_todo_listbox(todo_listbox, schedule_manager)
                 update_schedule_listbox(schedule_listbox, schedule_manager)
+        else:
+            print("タスクが選択されていません")
 
  # Googleカレンダーに追加するボタン
     add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加", command=on_insert_button_click)
@@ -994,41 +1119,7 @@ def create_event_window(schedule_manager):
 
     event_window.mainloop()
 
-    
-def get_all_mappings():
-    """SQLiteデータベースから全てのUUID、イベントID、サマリー、開始時間、終了時間のマッピングを取得して表示します。"""
-    # SQLiteデータベースに接続
-    conn = sqlite3.connect('resource_manager.db')
-    cursor = conn.cursor()
 
-    # テーブルからすべての行を選択
-    cursor.execute('SELECT task_uuid, event_id, summary, start_time, end_time FROM event_mappings')
-    rows = cursor.fetchall()
-
-    # 取得したマッピングを表示
-    for row in rows:
-        task_uuid, event_id, summary, start_time, end_time = row
-        print(f"UUID: {task_uuid}, Event ID: {event_id}, Summary: {summary}, Start Time: {start_time}, End Time: {end_time}")
-
-    # 接続を閉じる
-    conn.close()
-def get_all_task_conditions():
-    """SQLiteデータベースから全てのタスク条件（UUID、時間帯、優先度、最小時間）を取得して表示します。"""
-    # SQLiteデータベースに接続
-    conn = sqlite3.connect('resource_manager.db')
-    cursor = conn.cursor()
-
-    # task_conditions テーブルからすべての行を選択
-    cursor.execute('SELECT task_uuid, selected_time_range, selected_priority, min_duration FROM task_conditions')
-    rows = cursor.fetchall()
-
-    # 取得したタスク条件を表示
-    for row in rows:
-        task_uuid, selected_time_range, selected_priority, min_duration = row
-        print(f"UUID: {task_uuid}, Time Range: {selected_time_range}, Priority: {selected_priority}, Min Duration: {min_duration}")
-
-    # 接続を閉じる
-    conn.close()
 # プログレスバーの進捗率を計算する関数
 def calculate_progress(task_times, total_task_duration):
     # 現在の時間をUTCとして取得
@@ -1122,12 +1213,14 @@ add_button.grid(row=1, column=0, padx=10, pady=5, sticky="w")
 todo_listbox = tk.Listbox(task_management_frame, selectmode=tk.MULTIPLE, width=50, height=10)  
 todo_listbox.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
 
+delete_todo_button = ctk.CTkButton(task_management_frame, text="タスク削除", command=lambda: delete_todo_task(schedule_manager, todo_listbox))
+delete_todo_button.grid(row=3, padx=20, pady=10)
+
 def on_create_event_button_click():
     create_event_window(schedule_manager)  # schedule_manager を渡す
 # イベント作成ウィンドウを開くボタン
 create_event_button = ctk.CTkButton(task_management_frame, text="カレンダーに埋め込む", command=on_create_event_button_click)
-create_event_button.grid(row=3, padx=20, pady=10)
-
+create_event_button.grid(row=4, padx=20, pady=10)
 
 # スケジュール一覧タブ
 task_list_frame = ctk.CTkFrame(notebook)
@@ -1142,13 +1235,12 @@ task_list_frame.grid_rowconfigure(1, weight=1)
 
 schedule_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)  
 schedule_listbox.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
-# ボタンの設定
-delete_button = ctk.CTkButton(task_list_frame, text="タスク削除", command=delete_selected_task)
+
+delete_button = ctk.CTkButton(task_list_frame, text="タスク削除", command=lambda: delete_selected_task(schedule_manager, service))
 delete_button.grid(row=10, column=0, columnspan=3, pady=20)
 
-# ボタンの設定
-get_id_button = ctk.CTkButton(task_list_frame, text="タスク削除", command=get_all_mappings)
-get_id_button.grid(row=11, column=0, columnspan=3, pady=20)
+check_button = ctk.CTkButton(task_list_frame, text="チェック", command=lambda: show_table_contents(schedule_manager))
+check_button.grid(row=11, column=0, columnspan=3, pady=20)
 
 
 
@@ -1175,26 +1267,31 @@ def update_progress_bar(schedule_manager):
         progress_bar.set(0)
         progress_label.configure(text="0% 完了")
 
-        # 選択されたタスクのUUIDを取得
+        # 選択されたタスクのインデックスを取得
         index = selected_task_index[0]
         schedules = schedule_manager.get_schedules()  # schedule_manager からスケジュールを取得
-        task_uuid = schedules[index]['task_uuid']  # スケジュールからUUIDを取得
-        
-        # 選択されたタスクのtask_durationも取得
-        task_duration = schedules[index]['task_duration']  # スケジュールからtask_durationを取得
 
-        # タスク時間を取得
-        task_times = fetch_task_times_and_duration(task_uuid)
+        # 選択されたタスクのスケジュールを取得
+        if 0 <= index < len(schedules):
+            selected_schedule = schedules[index]
 
-        # 進捗を計算
-        progress_percentage = calculate_progress(task_times, task_duration)
+            # タスクのUUIDと所要時間を取得
+            task_uuid = selected_schedule[1]  # `task_uuid`は2番目の要素
+            task_duration = selected_schedule[2]  # `task_duration`は3番目の要素
 
-        # 進捗率を0.0～1.0に変換
-        target_progress = progress_percentage / 100
+            # タスク時間を取得
+            task_times = fetch_task_times_and_duration(task_uuid)
 
-        # アニメーションで進捗バーを更新
-        animate_progress_bar(target_progress)
+            # 進捗を計算
+            progress_percentage = calculate_progress(task_times, task_duration)
 
+            # 進捗率を0.0～1.0に変換
+            target_progress = progress_percentage / 100
+
+            # アニメーションで進捗バーを更新
+            animate_progress_bar(target_progress)
+        else:
+            print("無効なタスクが選択されました。")
     else:
         print("タスクが選択されていません。")
 
@@ -1239,7 +1336,7 @@ schedule_manager = ScheduleManager()
 
 schedule_manager.load_tasks()
 # update_task_listbox に schedule_manager を渡して呼び出す
-update_task_listbox(todo_listbox, schedule_manager)
+update_todo_listbox(todo_listbox, schedule_manager)
 
 schedule_manager.load_schedules()
 update_schedule_listbox(schedule_listbox, schedule_manager)
