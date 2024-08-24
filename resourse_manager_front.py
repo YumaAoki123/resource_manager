@@ -279,7 +279,7 @@ class ScheduleManager:
         try:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT event_id
+                SELECT event_id, start_time, end_time
                 FROM event_mappings
                 WHERE task_uuid = ?
             ''', (task_uuid,))
@@ -548,6 +548,41 @@ def show_schedule_details(event, schedule_manager):
         print("スケジュールが選択されていません。")
 
 
+def get_today_tasks():
+    # データベースに接続
+    conn = sqlite3.connect('resource_manager.db')
+    cursor = conn.cursor()
+
+    # 今日の日付を取得（ローカルタイムゾーン）
+    today = datetime.now(pytz.timezone('Asia/Tokyo')).date()
+    today_str = today.strftime('%Y-%m-%d')  # YYYY-MM-DD形式に変換
+
+    # SQLクエリを実行して、今日の日付に一致する全ての詳細情報を取得
+    cursor.execute('''
+        SELECT ti.task_name, em.event_id, em.start_time, em.end_time, 
+               tc.task_duration, tc.start_date, tc.end_date, 
+               tc.selected_time_range, tc.selected_priority, tc.min_duration
+        FROM event_mappings em
+        JOIN task_info ti ON em.task_uuid = ti.task_uuid
+        JOIN task_conditions tc ON em.task_uuid = tc.task_uuid
+        WHERE strftime('%Y-%m-%d', datetime(em.start_time, 'localtime')) = ?
+    ''', (today_str,))
+
+    # 結果を取得
+    tasks_details = cursor.fetchall()
+
+    # 結果をループして表示
+    for details in tasks_details:
+        print(f"Task Name: {details[0]}, Event ID: {details[1]}, Start Time: {details[2]}, End Time: {details[3]}, "
+              f"Task Duration: {details[4]}, Start Date: {details[5]}, End Date: {details[6]}, "
+              f"Selected Time Range: {details[7]}, Selected Priority: {details[8]}, Min Duration: {details[9]}")
+
+    # データベース接続を閉じる
+    conn.close()
+
+
+
+
 
 # イベント作成ウィンドウを作成する関数
 def create_event_window(schedule_manager):
@@ -736,6 +771,7 @@ def create_event_window(schedule_manager):
     # free_times_label = ctk.CTkLabel(event_window, text=free_times_text, justify="left")
     # free_times_label.grid(pady=20, padx=20)
 
+    #GoogleCalendarの既存の予定情報を取得し、それ以外の空いている時間帯情報を作成。
     def get_free_times(calendar_id="primary"):
         # 開始日と終了日を取得
         start_date, end_date = get_date_range()
@@ -810,7 +846,7 @@ def create_event_window(schedule_manager):
         naive_datetime = datetime.combine(base_date, time)
         return jst.localize(naive_datetime)
     
-    # 選択された時間帯と空いている時間帯の重なりを計算
+    #ユーザが設定した条件(時間帯・最低タスク時間)での実際のタスク予定時間。
     def compare_time_ranges(selected_ranges, free_times, min_duration):
         task_times = []
         min_duration = get_selected_min_duration()
@@ -848,7 +884,7 @@ def create_event_window(schedule_manager):
 
         return task_times
     
-   
+
 
     # def show_available_task_times():
     #     selected_ranges = get_selected_time_ranges()
@@ -862,21 +898,21 @@ def create_event_window(schedule_manager):
     #         print(f"タスクを実行可能な時間帯: {task_start} から {task_end}")
 
     def check_available_time(task_times, task_duration_minutes):
-            # タスクの所要時間を timedelta に変換
-            task_duration_minutes = get_task_duration()
-            task_duration = timedelta(minutes=task_duration_minutes)
+        # タスクの所要時間を timedelta に変換
+        task_duration = timedelta(minutes=task_duration_minutes)
 
-            # 空いている時間帯の合計時間を計算
-            total_available_time = timedelta()
-            for start, end in task_times:
-                total_available_time += end - start
-            
-            # 時間が足りるかどうかを確認
-            if total_available_time >= task_duration:
-                print(f"時間が足りてます")
-            else:
-                time_needed = task_duration - total_available_time
-                print(f"時間が足りません。{time_needed} が不足しています")
+        # 空いている時間帯の合計時間を計算
+        total_available_time = timedelta()
+        for start, end in task_times:
+            total_available_time += end - start
+
+        # 時間が足りるかどうかを確認
+        if total_available_time >= task_duration:
+            extra_time = total_available_time - task_duration
+            print(f"時間が足りています。余裕時間: {extra_time}")
+        else:
+            time_needed = task_duration - total_available_time
+            print(f"時間が足りません。{time_needed} が不足しています")
 
     def calculate_percentage(task_duration, total_free_time):
         print(f"task_duration: {task_duration}, total_free_time: {total_free_time}")
@@ -1221,6 +1257,10 @@ def on_create_event_button_click():
 # イベント作成ウィンドウを開くボタン
 create_event_button = ctk.CTkButton(task_management_frame, text="カレンダーに埋め込む", command=on_create_event_button_click)
 create_event_button.grid(row=4, padx=20, pady=10)
+
+today_task_button = ctk.CTkButton(task_management_frame, text="今日のタスク", command=get_today_tasks)
+today_task_button.grid(row=5, padx=20, pady=10)
+
 
 # スケジュール一覧タブ
 task_list_frame = ctk.CTkFrame(notebook)
