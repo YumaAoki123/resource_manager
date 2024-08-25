@@ -15,6 +15,15 @@ from datetime import datetime, timedelta, date
 import pytz
 import uuid
 import sqlite3
+from google.oauth2.credentials import Credentials
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email import message_from_bytes
+import base64
+import re
+import time
+import threading
+
 
 # DATA_FILE = 'tasks.json'
 
@@ -26,8 +35,14 @@ import sqlite3
 #             tasks = json.load(f)
 #     except FileNotFoundError:
 #         tasks = []
+# 認証に必要なスコープ
+SCOPES = [
+    'https://www.googleapis.com/auth/calendar',
+    'https://www.googleapis.com/auth/gmail.readonly', 
+    'https://www.googleapis.com/auth/gmail.send', 
+    'https://www.googleapis.com/auth/gmail.modify'
+]
 
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
 TOKEN_PICKLE = 'token.pickle'
 
 def get_credentials():
@@ -59,9 +74,16 @@ def get_credentials():
             pickle.dump(creds, token)
     return creds
 
+def get_gmail_service():
+    creds = get_credentials()
+    service = build('gmail', 'v1', credentials=creds)
+    return service
+
 # Google Calendar API を使うための準備
-creds = get_credentials()
-service = build('calendar', 'v3', credentials=creds)
+def get_calendar_service():
+    creds = get_credentials()
+    service = build('calendar', 'v3', credentials=creds)
+    return service
 
 # SQLiteデータベースに接続（ファイルが存在しない場合は作成されます）
 conn = sqlite3.connect('resource_manager.db')
@@ -107,6 +129,181 @@ CREATE TABLE IF NOT EXISTS event_mappings (
 conn.commit()
 conn.close()
 
+def create_message(sender, to, subject, body):
+    message = MIMEMultipart('alternative')
+    message['to'] = to
+    message['from'] = sender
+    message['subject'] = subject
+    
+    # HTML部分の作成
+    html = body
+    part = MIMEText(html, 'html')
+    message.attach(part)
+    
+    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    return {'raw': raw_message}
+
+def send_message(service, sender, to, subject, body):
+    try:
+        message = create_message(sender, to, subject, body)
+        sent_message = service.users().messages().send(userId="me", body=message).execute()
+        message_id = sent_message['id']
+        print(f"Message sent successfully with ID: {message_id}")
+        return message_id
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+
+def on_send_button_click():
+    # Gmailサービスを取得
+    service = get_gmail_service()
+
+    # 今日のタスクを取得
+    tasks = get_today_tasks()
+    
+    # メール本文をHTML形式で作成
+    body = '<p>達成できなかったタスクにチェックを付けて、メールを返信してください:</p>'
+    body += '<form action="mailto:mail.com" method="post" enctype="text/plain">'
+    body += '<ul>'
+    
+    # タスクの情報をリストとして表示
+    for task in tasks:
+        task_name = task[0]
+        start_time = task[2]
+        end_time = task[3]
+        priority = task[8]
+        
+        body += f'<li><input type="checkbox" name="tasks" value="{task_name}">'
+        body += f'{task_name} (開始: {start_time}, 終了: {end_time}, 優先度: {priority})</li>'
+    
+    body += '</ul>'
+    body += '<input type="submit" value="Send">'
+    body += '</form>'
+    get_latest_email(service)
+    # メールを送信
+    original_message_id = send_message(
+        service,
+        'mail',  # 送信者のメールアドレス
+        'mail',  # 受信者のメールアドレス
+        '本日のタスク',  # メールの件名
+        body  # メール本文
+    )
+
+    # Message-IDを保存（後で返信を特定するため）
+    if original_message_id:
+        with open('message_id.txt', 'w') as f:
+            f.write(original_message_id)
+
+    
+    # メール送信後、返信チェックを別スレッドで開始
+    check_thread = threading.Thread(target=check_for_reply, args=(service, original_message_id))
+    check_thread.start()
+
+    print("メールが送信されました")
+
+def get_latest_email(service):
+    try:
+        # 受信トレイ内の最新のメールをリストする
+        response = service.users().messages().list(userId='me', q='in:inbox', maxResults=1).execute()
+        messages = response.get('messages', [])
+        
+        if not messages:
+            print("受信トレイにメールはありません")
+            return
+        
+        latest_message_id = messages[0]['id']
+        print(f"最新のメールID: {latest_message_id}")
+
+        # 最新のメールの詳細を取得
+        msg = service.users().messages().get(userId='me', id=latest_message_id, format='metadata').execute()
+        headers = msg['payload']['headers']
+
+        # 件名を取得
+        subject = next((header['value'] for header in headers if header['name'] == 'Subject'), 'No Subject')
+        print(f"最新のメール件名: {subject}")
+
+    except Exception as e:
+        print(f"An error occurred while getting the latest email: {e}")
+
+def get_today_tasks():
+    # データベースに接続
+    conn = sqlite3.connect('resource_manager.db')
+    cursor = conn.cursor()
+
+    # 今日の日付を取得（ローカルタイムゾーン）
+    today = datetime.now(pytz.timezone('Asia/Tokyo')).date()
+    today_str = today.strftime('%Y-%m-%d')  # YYYY-MM-DD形式に変換
+
+    # SQLクエリを実行して、今日の日付に一致する全ての詳細情報を取得
+    cursor.execute('''
+        SELECT ti.task_name, em.event_id, em.start_time, em.end_time, 
+               tc.task_duration, tc.start_date, tc.end_date, 
+               tc.selected_time_range, tc.selected_priority, tc.min_duration
+        FROM event_mappings em
+        JOIN task_info ti ON em.task_uuid = ti.task_uuid
+        JOIN task_conditions tc ON em.task_uuid = tc.task_uuid
+        WHERE strftime('%Y-%m-%d', datetime(em.start_time, 'localtime')) = ?
+    ''', (today_str,))
+
+    # 結果を取得
+    tasks_details = cursor.fetchall()
+
+    # 結果をループして表示
+    for details in tasks_details:
+        print(f"Task Name: {details[0]}, Event ID: {details[1]}, Start Time: {details[2]}, End Time: {details[3]}, "
+              f"Task Duration: {details[4]}, Start Date: {details[5]}, End Date: {details[6]}, "
+              f"Selected Time Range: {details[7]}, Selected Priority: {details[8]}, Min Duration: {details[9]}")
+
+    # データベース接続を閉じる
+    conn.close()
+    
+    # タスクの詳細情報を返す
+    return tasks_details
+
+
+def check_for_reply(service, original_message_id, interval=60):
+    while True:
+        try:
+            print(f'in:inbox inReplyTo:{original_message_id}')
+            # 受信トレイを検索する
+            query = f'in:inbox inReplyTo:{original_message_id}'
+            response = service.users().messages().list(userId='me', q=query).execute()
+            messages = response.get('messages', [])
+
+            if not messages:
+                print("まだ返信はありません")
+            else:
+                # 最初の返信メールを取得
+                reply_message_id = messages[0]['id']
+                reply_message = service.users().messages().get(userId='me', id=reply_message_id, format='full').execute()
+
+                # メール本文を取得
+                for part in reply_message['payload']['parts']:
+                    if part['mimeType'] == 'text/plain':
+                        data = part['body']['data']
+                        decoded_data = base64.urlsafe_b64decode(data).decode('utf-8')
+                        print(f"返信内容: {decoded_data}")
+                        return decoded_data
+
+                print("返信メールが見つかりましたが、内容が取得できませんでした")
+                return None
+        except Exception as e:
+            print(f"An error occurred while checking for a reply: {e}")
+
+        # interval秒待機してから再度チェック
+        time.sleep(interval)
+
+def parse_reply_content(reply_content):
+    # チェックが付いたタスクを探す正規表現
+    task_pattern = re.compile(r'\[x\]\s(.+)\s\(開始.*\)')
+    incomplete_tasks = task_pattern.findall(reply_content)
+    
+    if incomplete_tasks:
+        print("未完了タスク:")
+        for task in incomplete_tasks:
+            print(task)
+    else:
+        print("未完了のタスクはありませんでした")
 # # タスクデータをファイルに保存する関数
 # def save_tasks():
 #     with open(DATA_FILE, "w") as f:
@@ -548,37 +745,7 @@ def show_schedule_details(event, schedule_manager):
         print("スケジュールが選択されていません。")
 
 
-def get_today_tasks():
-    # データベースに接続
-    conn = sqlite3.connect('resource_manager.db')
-    cursor = conn.cursor()
 
-    # 今日の日付を取得（ローカルタイムゾーン）
-    today = datetime.now(pytz.timezone('Asia/Tokyo')).date()
-    today_str = today.strftime('%Y-%m-%d')  # YYYY-MM-DD形式に変換
-
-    # SQLクエリを実行して、今日の日付に一致する全ての詳細情報を取得
-    cursor.execute('''
-        SELECT ti.task_name, em.event_id, em.start_time, em.end_time, 
-               tc.task_duration, tc.start_date, tc.end_date, 
-               tc.selected_time_range, tc.selected_priority, tc.min_duration
-        FROM event_mappings em
-        JOIN task_info ti ON em.task_uuid = ti.task_uuid
-        JOIN task_conditions tc ON em.task_uuid = tc.task_uuid
-        WHERE strftime('%Y-%m-%d', datetime(em.start_time, 'localtime')) = ?
-    ''', (today_str,))
-
-    # 結果を取得
-    tasks_details = cursor.fetchall()
-
-    # 結果をループして表示
-    for details in tasks_details:
-        print(f"Task Name: {details[0]}, Event ID: {details[1]}, Start Time: {details[2]}, End Time: {details[3]}, "
-              f"Task Duration: {details[4]}, Start Date: {details[5]}, End Date: {details[6]}, "
-              f"Selected Time Range: {details[7]}, Selected Priority: {details[8]}, Min Duration: {details[9]}")
-
-    # データベース接続を閉じる
-    conn.close()
 
 
 
@@ -797,7 +964,7 @@ def create_event_window(schedule_manager):
             "timeZone": "Asia/Tokyo",  # レスポンスのタイムゾーン
             "items": [{"id": calendar_id}]
         }
-
+        service = get_calendar_service()
         # Freebusy リクエストを送信
         freebusy_result = service.freebusy().query(body=request_body).execute()
 
@@ -1113,6 +1280,7 @@ def create_event_window(schedule_manager):
             return []          
         
     def on_insert_button_click():
+        service = get_calendar_service()
         # 選択されたタスクの名前とUUIDがある場合のみ実行
         if schedule_manager.selected_task_name and schedule_manager.selected_task_uuid:
             free_times = get_free_times()
@@ -1261,6 +1429,12 @@ create_event_button.grid(row=4, padx=20, pady=10)
 today_task_button = ctk.CTkButton(task_management_frame, text="今日のタスク", command=get_today_tasks)
 today_task_button.grid(row=5, padx=20, pady=10)
 
+# メール送信ボタンの作成
+send_button = ctk.CTkButton(task_management_frame, text="メールを送信", command=on_send_button_click)
+send_button.grid(row=6, padx=20, pady=10)
+
+
+
 
 # スケジュール一覧タブ
 task_list_frame = ctk.CTkFrame(notebook)
@@ -1276,8 +1450,8 @@ task_list_frame.grid_rowconfigure(1, weight=1)
 schedule_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)  
 schedule_listbox.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
 
-delete_button = ctk.CTkButton(task_list_frame, text="タスク削除", command=lambda: delete_selected_task(schedule_manager, service))
-delete_button.grid(row=10, column=0, columnspan=3, pady=20)
+# delete_button = ctk.CTkButton(task_list_frame, text="タスク削除", command=lambda: delete_selected_task(schedule_manager, service))
+# delete_button.grid(row=10, column=0, columnspan=3, pady=20)
 
 check_button = ctk.CTkButton(task_list_frame, text="チェック", command=lambda: show_table_contents(schedule_manager))
 check_button.grid(row=11, column=0, columnspan=3, pady=20)
