@@ -4,4 +4,4 @@ credentials.json
 resource_manager.db
 __pycache__
 token.pickle
-message_id.txt
+sent_message_id.txt

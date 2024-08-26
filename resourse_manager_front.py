@@ -23,7 +23,10 @@ import base64
 import re
 import time
 import threading
+from dotenv import load_dotenv
 
+# .envファイルの読み込み
+load_dotenv()
 
 # DATA_FILE = 'tasks.json'
 
@@ -129,102 +132,6 @@ CREATE TABLE IF NOT EXISTS event_mappings (
 conn.commit()
 conn.close()
 
-def create_message(sender, to, subject, body):
-    message = MIMEMultipart('alternative')
-    message['to'] = to
-    message['from'] = sender
-    message['subject'] = subject
-    
-    # HTML部分の作成
-    html = body
-    part = MIMEText(html, 'html')
-    message.attach(part)
-    
-    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-    return {'raw': raw_message}
-
-def send_message(service, sender, to, subject, body):
-    try:
-        message = create_message(sender, to, subject, body)
-        sent_message = service.users().messages().send(userId="me", body=message).execute()
-        message_id = sent_message['id']
-        print(f"Message sent successfully with ID: {message_id}")
-        return message_id
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        return None
-
-def on_send_button_click():
-    # Gmailサービスを取得
-    service = get_gmail_service()
-
-    # 今日のタスクを取得
-    tasks = get_today_tasks()
-    
-    # メール本文をHTML形式で作成
-    body = '<p>達成できなかったタスクにチェックを付けて、メールを返信してください:</p>'
-    body += '<form action="mailto:mail.com" method="post" enctype="text/plain">'
-    body += '<ul>'
-    
-    # タスクの情報をリストとして表示
-    for task in tasks:
-        task_name = task[0]
-        start_time = task[2]
-        end_time = task[3]
-        priority = task[8]
-        
-        body += f'<li><input type="checkbox" name="tasks" value="{task_name}">'
-        body += f'{task_name} (開始: {start_time}, 終了: {end_time}, 優先度: {priority})</li>'
-    
-    body += '</ul>'
-    body += '<input type="submit" value="Send">'
-    body += '</form>'
-    get_latest_email(service)
-    # メールを送信
-    original_message_id = send_message(
-        service,
-        'mail',  # 送信者のメールアドレス
-        'mail',  # 受信者のメールアドレス
-        '本日のタスク',  # メールの件名
-        body  # メール本文
-    )
-
-    # Message-IDを保存（後で返信を特定するため）
-    if original_message_id:
-        with open('message_id.txt', 'w') as f:
-            f.write(original_message_id)
-
-    
-    # メール送信後、返信チェックを別スレッドで開始
-    check_thread = threading.Thread(target=check_for_reply, args=(service, original_message_id))
-    check_thread.start()
-
-    print("メールが送信されました")
-
-def get_latest_email(service):
-    try:
-        # 受信トレイ内の最新のメールをリストする
-        response = service.users().messages().list(userId='me', q='in:inbox', maxResults=1).execute()
-        messages = response.get('messages', [])
-        
-        if not messages:
-            print("受信トレイにメールはありません")
-            return
-        
-        latest_message_id = messages[0]['id']
-        print(f"最新のメールID: {latest_message_id}")
-
-        # 最新のメールの詳細を取得
-        msg = service.users().messages().get(userId='me', id=latest_message_id, format='metadata').execute()
-        headers = msg['payload']['headers']
-
-        # 件名を取得
-        subject = next((header['value'] for header in headers if header['name'] == 'Subject'), 'No Subject')
-        print(f"最新のメール件名: {subject}")
-
-    except Exception as e:
-        print(f"An error occurred while getting the latest email: {e}")
-
 def get_today_tasks():
     # データベースに接続
     conn = sqlite3.connect('resource_manager.db')
@@ -261,49 +168,161 @@ def get_today_tasks():
     return tasks_details
 
 
-def check_for_reply(service, original_message_id, interval=60):
-    while True:
-        try:
-            print(f'in:inbox inReplyTo:{original_message_id}')
-            # 受信トレイを検索する
-            query = f'in:inbox inReplyTo:{original_message_id}'
-            response = service.users().messages().list(userId='me', q=query).execute()
-            messages = response.get('messages', [])
+def create_message(sender, to, subject, body):
+    """メールを作成する"""
+    message = MIMEMultipart('alternative')
+    message['to'] = to
+    message['from'] = sender
+    message['subject'] = subject
 
-            if not messages:
-                print("まだ返信はありません")
-            else:
-                # 最初の返信メールを取得
-                reply_message_id = messages[0]['id']
-                reply_message = service.users().messages().get(userId='me', id=reply_message_id, format='full').execute()
+    # HTML部分の作成
+    part = MIMEText(body, 'html')
+    message.attach(part)
 
-                # メール本文を取得
-                for part in reply_message['payload']['parts']:
-                    if part['mimeType'] == 'text/plain':
-                        data = part['body']['data']
-                        decoded_data = base64.urlsafe_b64decode(data).decode('utf-8')
-                        print(f"返信内容: {decoded_data}")
-                        return decoded_data
+    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    return {'raw': raw_message}
 
-                print("返信メールが見つかりましたが、内容が取得できませんでした")
-                return None
-        except Exception as e:
-            print(f"An error occurred while checking for a reply: {e}")
+def send_message(service, sender, to, subject, body):
+    """メールを送信し、Message-ID を取得して保存する"""
+    try:
+        message = create_message(sender, to, subject, body)
+        sent_message = service.users().messages().send(userId="me", body=message).execute()
+        message_id = sent_message['id']
+        
+        # メールの詳細を取得して Message-ID を取得
+        msg = service.users().messages().get(userId='me', id=message_id, format='full').execute()
+        headers = msg['payload']['headers']
+        
+        # Message-ID または Message-Id を取得
+        message_id_header = next((header['value'] for header in headers if header['name'] in ['Message-ID', 'Message-Id']), None)
+        
+        if message_id_header:
+            print(f"送信されたメールのMessage-ID: {message_id_header}")
+            
+            # Message-ID をファイルに保存
+            with open('sent_message_id.txt', 'w') as f:
+                f.write(message_id_header)
+        else:
+            print("Message-IDが見つかりませんでした。")
+        
+        return message_id
+    except Exception as e:
+        print(f"エラーが発生しました: {e}")
+        return None
 
-        # interval秒待機してから再度チェック
-        time.sleep(interval)
 
-def parse_reply_content(reply_content):
-    # チェックが付いたタスクを探す正規表現
-    task_pattern = re.compile(r'\[x\]\s(.+)\s\(開始.*\)')
-    incomplete_tasks = task_pattern.findall(reply_content)
+def on_send_button_click():
+    # Gmailサービスを取得
+    service = get_gmail_service()
+
+    # 今日のタスクを取得
+    tasks = get_today_tasks()
     
-    if incomplete_tasks:
-        print("未完了タスク:")
-        for task in incomplete_tasks:
-            print(task)
-    else:
-        print("未完了のタスクはありませんでした")
+    # HTML形式でタスクのチェックボックス付きメール本文を作成
+    body = '<p>達成できなかったタスクにチェックを付けて、メールを返信してください:</p>'
+    body += '<ul>'
+    
+    # タスクの情報をリストとして表示し、チェックボックスを追加
+    for idx, task in enumerate(tasks):
+        task_name = task[0]
+        start_time = task[2]
+        end_time = task[3]
+        priority = task[8]
+        
+        # チェックボックスとタスク情報を表示
+        body += f'<li><input type="checkbox" name="task{idx}" value="{task_name}"> {task_name} (開始: {start_time}, 終了: {end_time}, 優先度: {priority})</li>'
+    
+    body += '</ul>'
+    body += '<p>このメールに返信し、完了したタスクを報告してください。</p>'
+        # 環境変数からメールアドレスを取得
+    fromemail = os.getenv('FROMEMAIL')
+    toemail = os.getenv('TOEMAIL')
+    print(f"fromemail: {fromemail} toemail: {toemail}")
+
+    # メールを送信
+    sender = fromemail  # 送信者のメールアドレス
+    recipient = toemail  # 受信者のメールアドレス
+    subject = '本日のタスク'
+    send_message(service, sender, recipient, subject, body)
+   
+    print("メールが送信されました")
+
+
+def get_recent_messages(service, max_results=3):
+    try:
+        # メールリストを取得する
+        results = service.users().messages().list(userId='me', maxResults=max_results, labelIds=['INBOX'], q='').execute()
+        messages = results.get('messages', [])
+        
+        # メールの詳細を取得
+        detailed_messages = []
+        for message in messages:
+            msg = service.users().messages().get(userId='me', id=message['id'], format='full').execute()
+            detailed_messages.append({
+                'id': message['id'],
+                'snippet': msg.get('snippet', ''),
+                'headers': msg['payload']['headers']
+            })
+        return detailed_messages
+    
+    except Exception as e:
+        print(f"メール取得エラー: {e}")
+        return []
+
+def check_recent_messages():
+    service = get_gmail_service()
+    try:
+        # 最新の3件のメールを取得
+        messages = get_recent_messages(service, max_results=3)
+        
+        if not messages:
+            print("メールが見つかりませんでした。")
+            return
+
+        # 各メールのIDと件名を表示し、返信メールかどうかを確認
+        for message in messages:
+            message_id = message['id']
+            subject = next((header['value'] for header in message['headers'] if header['name'] == 'Subject'), 'No Subject')
+            print(f"メールID: {message_id} 件名: {subject}")
+            check_if_reply(service, message_id)
+    
+    except Exception as e:
+        print(f"エラーが発生しました: {e}")
+
+def check_if_reply(service, message_id):
+    try:
+        # メールの詳細を取得
+        msg = service.users().messages().get(userId='me', id=message_id, format='full').execute()
+        headers = msg['payload']['headers']
+        
+        # In-Reply-To ヘッダーの確認
+        in_reply_to = next((header['value'] for header in headers if header['name'] == 'In-Reply-To'), None)
+        
+        # 送信メールのMessage-IDをファイルから読み込む
+        try:
+            with open('sent_message_id.txt', 'r') as f:
+                sent_message_id = f.read().strip()
+        except FileNotFoundError:
+            print("送信メールのMessage-IDが保存されていません。")
+            sent_message_id = None
+        
+        if in_reply_to:
+            if in_reply_to == sent_message_id:
+                print(f"メールID: {message_id} は返信メールで、一致しました。")
+            else:
+                print(f"メールID: {message_id} は返信メールですが、一致しませんでした。返信先のメッセージID: {in_reply_to}")
+        else:
+            print(f"メールID: {message_id} は返信メールではありません。")
+    
+    except Exception as e:
+        print(f"エラーが発生しました: {e}")
+
+def on_check_button_click():
+    # スレッドで check_recent_messages を実行
+    threading.Thread(target=check_recent_messages).start()
+
+
+    
 # # タスクデータをファイルに保存する関数
 # def save_tasks():
 #     with open(DATA_FILE, "w") as f:
@@ -1433,7 +1452,9 @@ today_task_button.grid(row=5, padx=20, pady=10)
 send_button = ctk.CTkButton(task_management_frame, text="メールを送信", command=on_send_button_click)
 send_button.grid(row=6, padx=20, pady=10)
 
-
+# 「返信確認」ボタンを作成
+check_reply_button = ctk.CTkButton(app, text="返信確認", command=on_check_button_click)
+check_reply_button.grid(row=7, padx=20, pady=10)
 
 
 # スケジュール一覧タブ
