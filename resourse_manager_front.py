@@ -23,6 +23,7 @@ import base64
 import re
 import time
 import threading
+
 from dotenv import load_dotenv
 
 # .envファイルの読み込み
@@ -43,7 +44,9 @@ SCOPES = [
     'https://www.googleapis.com/auth/calendar',
     'https://www.googleapis.com/auth/gmail.readonly', 
     'https://www.googleapis.com/auth/gmail.send', 
-    'https://www.googleapis.com/auth/gmail.modify'
+    'https://www.googleapis.com/auth/gmail.modify',
+    'https://www.googleapis.com/auth/forms.body',
+    'https://www.googleapis.com/auth/forms.responses.readonly'
 ]
 
 TOKEN_PICKLE = 'token.pickle'
@@ -79,14 +82,20 @@ def get_credentials():
 
 def get_gmail_service():
     creds = get_credentials()
-    service = build('gmail', 'v1', credentials=creds)
-    return service
+    gmail_service = build('gmail', 'v1', credentials=creds)
+    return gmail_service
 
 # Google Calendar API を使うための準備
 def get_calendar_service():
     creds = get_credentials()
-    service = build('calendar', 'v3', credentials=creds)
-    return service
+    calendar_service = build('calendar', 'v3', credentials=creds)
+    return calendar_service
+
+# Google Forms API を使うための準備
+def get_forms_service():
+    creds = get_credentials()  # 既存のget_credentials()関数を使用して認証を行う
+    forms_service = build('forms', 'v1', credentials=creds)
+    return forms_service
 
 # SQLiteデータベースに接続（ファイルが存在しない場合は作成されます）
 conn = sqlite3.connect('resource_manager.db')
@@ -214,26 +223,16 @@ def send_message(service, sender, to, subject, body):
 def on_send_button_click():
     # Gmailサービスを取得
     service = get_gmail_service()
-
-    # 今日のタスクを取得
-    tasks = get_today_tasks()
     
+    form_link = create_form()
+
     # HTML形式でタスクのチェックボックス付きメール本文を作成
     body = '<p>達成できなかったタスクにチェックを付けて、メールを返信してください:</p>'
     body += '<ul>'
     
-    # タスクの情報をリストとして表示し、チェックボックスを追加
-    for idx, task in enumerate(tasks):
-        task_name = task[0]
-        start_time = task[2]
-        end_time = task[3]
-        priority = task[8]
-        
-        # チェックボックスとタスク情報を表示
-        body += f'<li><input type="checkbox" name="task{idx}" value="{task_name}"> {task_name} (開始: {start_time}, 終了: {end_time}, 優先度: {priority})</li>'
-    
-    body += '</ul>'
-    body += '<p>このメールに返信し、完了したタスクを報告してください。</p>'
+     # メール本文にフォームリンクを追加
+    body = f'<p>本日のタスク達成状況を以下のリンクから記入してください。</p><a href="{form_link}">Googleフォームリンク</a>'
+
         # 環境変数からメールアドレスを取得
     fromemail = os.getenv('FROMEMAIL')
     toemail = os.getenv('TOEMAIL')
@@ -242,7 +241,7 @@ def on_send_button_click():
     # メールを送信
     sender = fromemail  # 送信者のメールアドレス
     recipient = toemail  # 受信者のメールアドレス
-    subject = '本日のタスク'
+    subject = '本日のタスク達成状況'
     send_message(service, sender, recipient, subject, body)
    
     print("メールが送信されました")
@@ -285,7 +284,7 @@ def check_recent_messages():
             subject = next((header['value'] for header in message['headers'] if header['name'] == 'Subject'), 'No Subject')
             print(f"メールID: {message_id} 件名: {subject}")
             check_if_reply(service, message_id)
-    
+        get_form_responses()
     except Exception as e:
         print(f"エラーが発生しました: {e}")
 
@@ -322,7 +321,116 @@ def on_check_button_click():
     threading.Thread(target=check_recent_messages).start()
 
 
+# フォームの作成
+def create_form():
+    service = get_forms_service()
+     # 今日のタスクを取得
+    tasks = get_today_tasks()
+# フォームを作成
+    form = {
+        "info": {
+            "title": "今日のタスク達成状況",
+        }
+    }
+    result = service.forms().create(body=form).execute()
+    form_id = result['formId']
     
+    # タスク項目を追加 (batchUpdate)
+    requests = []
+    for idx, task in enumerate(tasks):
+        task_name = task[0]
+        start_time = task[2]
+        end_time = task[3]
+        priority = task[8]
+        
+        question_title = f"{task_name} (開始: {start_time}, 終了: {end_time}, 優先度: {priority})"
+        
+        # チェックボックス形式の質問を追加
+        requests.append({
+            "createItem": {
+                "item": {
+                    "title": question_title,
+                    "questionItem": {
+                        "question": {
+                            "required": True,
+                            "choiceQuestion": {
+                                "type": "RADIO",
+                                "options": [
+                                    {"value": "達成"},
+                                    {"value": "未達成"}
+                                ]
+                            }
+                        }
+                    }
+                },
+                "location": {
+                    "index": idx
+                }
+            }
+        })
+       
+    # フォームIDをテキストファイルに保存
+    with open('forms_id.txt', 'w') as f:
+        f.write(form_id)
+  
+    # バッチ更新リクエストを実行
+    batch_update_request = {"requests": requests}
+    service.forms().batchUpdate(formId=form_id, body=batch_update_request).execute()
+
+    # フォームのリンクを返す
+    form_link = f"https://docs.google.com/forms/d/{form_id}/viewform"
+    return form_link
+
+
+def get_form_responses():
+    """
+    Google Formsから全回答を取得して出力する関数
+
+    Parameters:
+    service_account_file (str): サービスアカウントのJSONキーのパス
+    form_id (str): 取得するフォームのID
+    """
+    service = get_forms_service()
+    try:
+        # フォームIDをファイルから読み取る
+        with open('forms_id.txt', 'r') as f:
+            form_id = f.read().strip()
+        
+        # フォームの回答を取得
+        response = service.forms().responses().list(formId=form_id).execute()
+        responses = response.get('responses', [])
+
+        # 回答を出力
+        for response in responses:
+            print("回答ID:", response.get('responseId'))
+            print("作成時間:", response.get('createTime'))
+            print("最終送信時間:", response.get('lastSubmittedTime'))
+            print("回答者メール:", response.get('respondentEmail'))
+
+            answers = response.get('answers', {})
+            for question_id, answer in answers.items():
+                print(f"質問ID: {question_id}")
+
+                # テキスト回答の処理
+                text_answers = answer.get('textAnswers')
+                if text_answers:
+                    print("テキスト回答:", text_answers.get('answers'))
+
+                # ファイルアップロード回答の処理
+                file_upload_answers = answer.get('fileUploadAnswers')
+                if file_upload_answers:
+                    print("ファイルアップロード回答:", file_upload_answers.get('answers'))
+
+                # 追加の回答形式に応じた処理を追加できます。
+            
+            print("総スコア:", response.get('totalScore'))
+            print("-" * 20)
+    
+    except FileNotFoundError:
+        print(f"ファイルが見つかりません")
+    except Exception as e:
+        print(f"エラーが発生しました: {e}")
+
 # # タスクデータをファイルに保存する関数
 # def save_tasks():
 #     with open(DATA_FILE, "w") as f:
