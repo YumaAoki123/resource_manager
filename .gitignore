@@ -5,3 +5,4 @@ resource_manager.db
 __pycache__
 token.pickle
 sent_message_id.txt
+forms_id.txt
