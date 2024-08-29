@@ -26,139 +26,129 @@ import threading
 import requests
 from dotenv import load_dotenv
 
+load_dotenv()
+
+server_url = os.getenv('SERVER_URL')  
+# ユーザー登録処理
 
 
-# # ログインフレームの作成
-# login_frame = ctk.CTkFrame(app)
-# login_frame.pack(pady=50, padx=50, fill="both", expand=True)
-
-# # メールアドレス入力
-# email_label = ctk.CTkLabel(login_frame, text="メールアドレス")
-# email_label.grid(row=0, column=0, pady=10, padx=10)
-# email_entry = ctk.CTkEntry(login_frame)
-# email_entry.grid(row=0, column=1, pady=10, padx=10)
-
-# # パスワード入力
-# password_label = ctk.CTkLabel(login_frame, text="パスワード")
-# password_label.grid(row=1, column=0, pady=10, padx=10)
-# password_entry = ctk.CTkEntry(login_frame, show="*")
-# password_entry.grid(row=1, column=1, pady=10, padx=10)
-
-
-# # ログイン処理
-# def login():
-#     email = email_entry.get()
-#     password = password_entry.get()
-    
-#     # サーバーに送信するデータを作成
-#     data = {
-#         'email': email,
-#         'password': password
-#     }
-
-#     try:
-#         # サーバーにPOSTリクエストを送信
-#         response = requests.post(SERVER_URL, json=data)
-#         if response.status_code == 200:
-#             # ログイン成功
-#             login_label.configure(text="ログイン成功", text_color="green")
-#             # メインアプリケーション画面を開くなどの処理
-#             open_main_app(email)
-#         else:
-#             login_label.configure(text=f"ログイン失敗: {response.json().get('error')}", text_color="red")
-#     except requests.RequestException as e:
-#         login_label.configure(text=f"リクエストエラー: {str(e)}", text_color="red")
-
-# # ログインボタン
-# login_button = ctk.CTkButton(login_frame, text="ログイン", command=login)
-# login_button.grid(row=2, columnspan=2, pady=20)
-
-# # ログイン状態表示ラベル
-# login_label = ctk.CTkLabel(login_frame, text="")
-# login_label.grid(row=3, columnspan=2)
-
-# # メインアプリケーションの画面を開く
-# def open_main_app(user_email):
-#     # 現在のログイン画面を閉じる
-#     login_frame.pack_forget()
-    
-#     # メインフレームの作成
-#     main_frame = ctk.CTkFrame(app)
-#     main_frame.pack(pady=50, padx=50, fill="both", expand=True)
-    
-#     # ログイン中のユーザー情報の表示
-#     welcome_label = ctk.CTkLabel(main_frame, text=f"こんにちは、{user_email}さん")
-#     welcome_label.grid(row=0, column=0, pady=10, padx=10)
+# アプリケーションの初期化
+ctk.set_appearance_mode("Dark")  # 外観モードの設定（"System", "Dark", "Light"）
+ctk.set_default_color_theme("blue")  # カラーテーマの設定
 
 # アプリケーションウィンドウの作成
 app = ctk.CTk()
 app.geometry("400x300")
-app.title("ユーザー登録")
+app.title("ユーザー認証")
 
-# サインアップフレームの作成
-signup_frame = ctk.CTkFrame(app)
-signup_frame.pack(pady=50, padx=50, fill="both", expand=True)
+# 選択画面のフレーム
+select_frame = ctk.CTkFrame(app)
+select_frame.grid(pady=50, padx=50, fill="both", expand=True)
 
-# メールアドレス入力
-email_label = ctk.CTkLabel(signup_frame, text="メールアドレス")
-email_label.grid(row=0, column=0, pady=10, padx=10)
-email_entry = ctk.CTkEntry(signup_frame)
-email_entry.grid(row=0, column=1, pady=10, padx=10)
+# サインイン・サインアップの選択
+def show_signin():
+    select_frame.pack_forget()
+    show_signin_form()
 
-# パスワード入力
-password_label = ctk.CTkLabel(signup_frame, text="パスワード")
-password_label.grid(row=1, column=0, pady=10, padx=10)
-password_entry = ctk.CTkEntry(signup_frame, show="*")
-password_entry.grid(row=1, column=1, pady=10, padx=10)
+def show_signup():
+    select_frame.pack_forget()
+    show_signup_form()
+
+signin_button = ctk.CTkButton(select_frame, text="サインイン", command=show_signin)
+signin_button.grid(row=0, column=0, pady=10, padx=10)
+
+signup_button = ctk.CTkButton(select_frame, text="サインアップ", command=show_signup)
+signup_button.grid(row=1, column=0, pady=10, padx=10)
+
+def show_signin_form():
+    signin_frame = ctk.CTkFrame(app)
+    signin_frame.pack(pady=50, padx=50, fill="both", expand=True)
+
+    email_label = ctk.CTkLabel(signin_frame, text="メールアドレス")
+    email_label.grid(row=0, column=0, pady=10, padx=10)
+    email_entry = ctk.CTkEntry(signin_frame)
+    email_entry.grid(row=0, column=1, pady=10, padx=10)
+
+    password_label = ctk.CTkLabel(signin_frame, text="パスワード")
+    password_label.grid(row=1, column=0, pady=10, padx=10)
+    password_entry = ctk.CTkEntry(signin_frame, show="*")
+    password_entry.grid(row=1, column=1, pady=10, padx=10)
+
+    # サインイン処理
+    def signin():
+        email = email_entry.get()
+        password = password_entry.get()
+
+        # サーバーに送信するデータを作成
+        data = {
+            'email': email,
+            'password': password
+        }
+
+        try:
+            response = requests.post(server_url + "/login", json=data)
+            if response.status_code == 200:
+                signin_label.configure(text="サインイン成功", text_color="green")
+                open_main_app(email)
+                signin_frame.destroy()
+            else:
+                signin_label.configure(text="サインイン失敗", text_color="red")
+        except requests.RequestException as e:
+            signin_label.configure(text=f"リクエストエラー: {str(e)}", text_color="red")
+
+    signin_button = ctk.CTkButton(signin_frame, text="サインイン", command=signin)
+    signin_button.grid(row=2, columnspan=2, pady=20)
+
+    signin_label = ctk.CTkLabel(signin_frame, text="")
+    signin_label.grid(row=3, columnspan=2)
 
 
-server_url = os.getenv('SERVER_URL')  
-# ユーザー登録処理
-def register():
-    email = email_entry.get()
-    password = password_entry.get()
+def show_signup_form():
+    signup_frame = ctk.CTkFrame(app)
+    signup_frame.pack(pady=50, padx=50, fill="both", expand=True)
 
-    # サーバーに送信するデータを作成
-    data = {
-        'email': email,
-        'password': password
-    }
+    email_label = ctk.CTkLabel(signup_frame, text="メールアドレス")
+    email_label.grid(row=0, column=0, pady=10, padx=10)
+    email_entry = ctk.CTkEntry(signup_frame)
+    email_entry.grid(row=0, column=1, pady=10, padx=10)
 
-    try:
-        # サーバーにPOSTリクエストを送信
-        response = requests.post(server_url, json=data)
-        if response.status_code == 200:
-            signup_label.configure(text="ユーザー登録が完了。ログインしました", text_color="green")
-            # ログイン画面に切り替えるなどの処理
-            open_main_app(email)
-        else:
-            signup_label.configure(text=f"登録に失敗しました: {response.json().get('error')}", text_color="red")
-    except requests.RequestException as e:
-        signup_label.configure(text=f"リクエストエラー: {str(e)}", text_color="red")
+    password_label = ctk.CTkLabel(signup_frame, text="パスワード")
+    password_label.grid(row=1, column=0, pady=10, padx=10)
+    password_entry = ctk.CTkEntry(signup_frame, show="*")
+    password_entry.grid(row=1, column=1, pady=10, padx=10)
 
-# 登録ボタン
-signup_button = ctk.CTkButton(signup_frame, text="登録", command=register)
-signup_button.grid(row=2, columnspan=2, pady=20)
+    def signup():
+        email = email_entry.get()
+        password = password_entry.get()
 
-# 登録状態表示ラベル
-signup_label = ctk.CTkLabel(signup_frame, text="")
-signup_label.grid(row=3, columnspan=2)
+        data = {
+            'email': email,
+            'password': password
+        }
+        
+        try:
+            response = requests.post(server_url + "/register", json=data)
+            if response.status_code == 200:
+                signup_label.configure(text="ユーザー登録が完了。ログインしました", text_color="green")
+                open_main_app(email)
+                signup_frame.destroy()
+            else:
+                signup_label.configure(text=f"登録に失敗しました: {response.json().get('error')}", text_color="red")
+        except requests.RequestException as e:
+            signup_label.configure(text=f"リクエストエラー: {str(e)}", text_color="red")
+
+    signup_button = ctk.CTkButton(signup_frame, text="登録", command=signup)
+    signup_button.grid(row=2, columnspan=2, pady=20)
+
+    signup_label = ctk.CTkLabel(signup_frame, text="")
+    signup_label.grid(row=3, columnspan=2)
 
 # メインアプリケーションの画面を開く
 def open_main_app(email):
-    # 現在のログイン画面を閉じる
-    signup_frame.pack_forget()
-    
-    # DATA_FILE = 'tasks.json'
+    # 現在のフレームを非表示にする
+    for widget in app.winfo_children():
+        widget.pack_forget()
 
-    # # タスクデータをファイルから読み込む関数
-    # def load_tasks():
-    #     global tasks
-    #     try:
-    #         with open(DATA_FILE, "r") as f:
-    #             tasks = json.load(f)
-    #     except FileNotFoundError:
-    #         tasks = []
     # 認証に必要なスコープ
     SCOPES = [
         'https://www.googleapis.com/auth/calendar'
@@ -1623,14 +1613,12 @@ def open_main_app(email):
 
         return task_times
     
-    
     app.title("resource_manager")
     app.geometry("900x600")
 
     # Notebook（タブ）ウィジェットの作成
     notebook = ttk.Notebook(app)
     notebook.grid(row=0, column=0, sticky="nsew")
-
 
     # ウィンドウの列と行の比率を設定
     app.grid_columnconfigure(0, weight=1)
