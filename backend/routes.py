@@ -1,19 +1,26 @@
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, redirect, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3
 from models import create_connection
 from email_service import create_form, on_send_button_click
+from calendar_service import calculate_free_times
 import requests
-from oauthlib.oauth2 import WebApplicationClient
+from auth import google
+import secrets
 
-main_routes = Blueprint('main', __name__)
+
+
+main = Blueprint('main', __name__)
 
 # ホームエンドポイント
-@main_routes.route('/', methods=['GET'])
+@main.route('/', methods=['GET'])
 def home():
-    return "Welcome to the Home Page!", 200
+    user = session.get('user')
+    if user:
+        return f'Hello, {user["name"]}'
+    return 'Not logged in'
 
-@main_routes.route('/login', methods=['POST'])
+@main.route('/login', methods=['POST'])
 def login():
     data = request.get_json()
     email = data.get('email')
@@ -33,14 +40,14 @@ def login():
         return jsonify({"error": "無効なメールアドレスまたはパスワード"}), 401
     
 
-@main_routes.route('/logout', methods=['POST'])
+@main.route('/logout', methods=['POST'])
 def logout():
     # セッションの管理など
     return jsonify({"message": "ログアウト成功"}), 200
 
 
 
-@main_routes.route('/register', methods=['POST'])
+@main.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
     email = data.get('email')
@@ -76,28 +83,7 @@ def register():
     return jsonify({"message": "ユーザー登録が完了し、ログインしました"}), 200
 
 
-# # メールアドレス登録エンドポイント
-# @main_routes.route('/register', methods=['POST'])
-# def register_email():
-#     email = request.form.get('email')
-    
-#     if not email:
-#         return jsonify({"error": "メールアドレスが必要です"}), 400
-    
-#     conn = create_connection()
-#     try:
-#         with conn:
-#             conn.execute('INSERT INTO users (email) VALUES (?)', (email,))
-#                # ログに出力して確認
-#             print(f"Email received and saved: {email}")
-#         return jsonify({"message": "メールアドレスが登録されました"}), 200
-     
-#     except sqlite3.IntegrityError:
-#         return jsonify({"error": "このメールアドレスは既に登録されています"}), 400
-#     finally:
-#         conn.close()
-
-@main_routes.route('/submit-tasks', methods=['POST'])
+@main.route('/submit-tasks', methods=['POST'])
 def submit_tasks():
     data = request.get_json()
     
@@ -115,68 +101,32 @@ def submit_tasks():
 
     return jsonify({"message": "タスク情報が処理されました"}), 200
 
-discovery_url = get
-# GoogleのOpenID Connectエンドポイントを取得
-def get_google_provider_cfg():
-    return requests.get(discovery_url).json()
-
-# Google認証のリダイレクト先
-@main_routes.route("/google_login")
+# Googleログインエンドポイント
+@main.route('/google-login')
 def google_login():
-    google_provider_cfg = get_google_provider_cfg()
-    authorization_endpoint = google_provider_cfg["authorization_endpoint"]
+    nonce = secrets.token_urlsafe(16)  # ランダムなnonceを生成
+    session['nonce'] = nonce  # セッションに保存
+    redirect_uri = url_for('main.auth_callback', _external=True)
+    return google.authorize_redirect(redirect_uri, nonce=nonce)
 
-    request_uri = client.prepare_request_uri(
-        authorization_endpoint,
-        redirect_uri=url_for("google_callback", _external=True),
-        scope=["openid", "email", "profile", "https://www.googleapis.com/auth/calendar"],
-    )
-    return redirect(request_uri)
+# Google認証コールバック
+@main.route('/auth/callback')
+def auth_callback():
+    token = google.authorize_access_token()
+    nonce = session.pop('nonce', None)  # セッションからnonceを取得
+    user_info = google.parse_id_token(token, nonce=nonce)  # nonceを渡してIDトークンを解析
+    session['user'] = user_info
+    return redirect(url_for('main.home'))
 
-def load_tokens():
-    if os.path.exists(TOKENS_FILE):
-        with open(TOKENS_FILE, 'r') as f:
-            return json.load(f)
-    return {}
+@main.route('/get-free-times', methods=['POST'])
+def get_free_times():
+    data = request.json
+    calendar_id = data.get('calendar_id', 'primary')
+    start_date = data.get('start_date')
+    end_date = data.get('end_date')
 
-def save_token(user_id, token):
-    tokens = load_tokens()
-    tokens[user_id] = token
-    with open(TOKENS_FILE, 'w') as f:
-        json.dump(tokens, f)
-
-def get_token(user_id):
-    tokens = load_tokens()
-    return tokens.get(user_id, None)
-
-@app.route("/google_callback")
-def google_callback():
-    code = request.args.get("code")
-
-    google_provider_cfg = get_google_provider_cfg()
-    token_endpoint = google_provider_cfg["token_endpoint"]
-
-    token_url, headers, body = client.prepare_token_request(
-        token_endpoint,
-        authorization_response=request.url,
-        redirect_url=request.base_url,
-        code=code
-    )
-    token_response = requests.post(
-        token_url,
-        headers=headers,
-        data=body,
-        auth=(client_id, client_secret),
-    )
-
-    client.parse_request_body_response(token_response.text)
-    userinfo_endpoint = google_provider_cfg["userinfo_endpoint"]
-    uri, headers, body = client.add_token(userinfo_endpoint)
-    userinfo_response = requests.get(uri, headers=headers, data=body)
-
-    if userinfo_response.json().get("email_verified"):
-        session["email"] = userinfo_response.json()["email"]
-        session["credentials"] = token_response.json()
-        return redirect(url_for("main_app"))
-    else:
-        return "User email not available or not verified by Google.", 400
+    try:
+        free_times = calculate_free_times(start_date, end_date, calendar_id)
+        return jsonify(free_times)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

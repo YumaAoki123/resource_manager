@@ -281,5 +281,3 @@ def get_form_responses():
         print(f"エラーが発生しました: {e}")
 
 
-
-
