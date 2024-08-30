@@ -25,7 +25,8 @@ import time
 import threading
 import requests
 from dotenv import load_dotenv
-
+import webbrowser
+import json
 load_dotenv()
 
 server_url = os.getenv('SERVER_URL')  
@@ -43,7 +44,7 @@ app.title("ユーザー認証")
 
 # 選択画面のフレーム
 select_frame = ctk.CTkFrame(app)
-select_frame.grid(pady=50, padx=50, fill="both", expand=True)
+select_frame.pack(pady=50, padx=50, fill="both", expand=True)
 
 # サインイン・サインアップの選択
 def show_signin():
@@ -201,6 +202,12 @@ def open_main_app(email):
         creds = get_credentials()  # 既存のget_credentials()関数を使用して認証を行う
         forms_service = build('forms', 'v1', credentials=creds)
         return forms_service
+
+    def start_google_auth():
+        # Google認証のリダイレクトURLを指定
+        auth_url = 'http://localhost:5000/google-login'  # サーバーのログインエンドポイント
+        webbrowser.open(auth_url)
+
 
     # SQLiteデータベースに接続（ファイルが存在しない場合は作成されます）
     conn = sqlite3.connect('resource_manager.db')
@@ -1170,71 +1177,89 @@ def open_main_app(email):
         # free_times_label = ctk.CTkLabel(event_window, text=free_times_text, justify="left")
         # free_times_label.grid(pady=20, padx=20)
 
-        #GoogleCalendarの既存の予定情報を取得し、それ以外の空いている時間帯情報を作成。
-        def get_free_times(calendar_id="primary"):
-            # 開始日と終了日を取得
+        def fetch_free_times():
             start_date, end_date = get_date_range()
-
-            # 空き時間のリスト
-            free_times = []
-
-            # JST タイムゾーンを設定
-            jst = pytz.timezone('Asia/Tokyo')
-
-            # 文字列を datetime オブジェクトに変換
-            start_date_datetime = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S%z")
-            end_date_datetime = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S%z")
-
-            # UTC に変換
-            start_time_utc = start_date_datetime.astimezone(pytz.UTC)
-            end_time_utc = end_date_datetime.astimezone(pytz.UTC)
-
-            # Freebusy リクエストのボディを作成
-            request_body = {
-                "timeMin": start_time_utc.isoformat(),
-                "timeMax": end_time_utc.isoformat(),
-                "timeZone": "Asia/Tokyo",  # レスポンスのタイムゾーン
-                "items": [{"id": calendar_id}]
+            url = 'http://localhost:5000/get-free-times'  # サーバーのエンドポイント
+            data = {
+                "calendar_id": "primary",  # 必要に応じて変更
+                "start_date": start_date,
+                "end_date": end_date
             }
-            service = get_calendar_service()
-            # Freebusy リクエストを送信
-            freebusy_result = service.freebusy().query(body=request_body).execute()
 
-            busy_times = freebusy_result['calendars'][calendar_id]['busy']
+            response = requests.post(url, json=data)
+            if response.status_code == 200:
+                free_times = response.json()
+                for free_start, free_end in free_times:
+                    print(f"空いている時間帯: start_time: {free_start} から end_time: {free_end}")
+                return free_times
+            else:
+                print("Failed to fetch free times")
 
-            # 予定のある時間帯を計算
-            busy_periods = []
-            for busy_period in busy_times:
-                start = busy_period['start']
-                end = busy_period['end']
+        # #GoogleCalendarの既存の予定情報を取得し、それ以外の空いている時間帯情報を作成。
+        # def get_free_times(calendar_id="primary"):
+        #     # 開始日と終了日を取得
+        #     start_date, end_date = get_date_range()
 
-                # 日本時間に変換
-                start_time_jst = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(jst)
-                end_time_jst = datetime.fromisoformat(end.replace("Z", "+00:00")).astimezone(jst)
+        #     # 空き時間のリスト
+        #     free_times = []
 
-                busy_periods.append((start_time_jst, end_time_jst))
+        #     # JST タイムゾーンを設定
+        #     jst = pytz.timezone('Asia/Tokyo')
 
-            # 予定のない時間帯を計算
-            busy_periods.sort()  # 予定のある時間帯をソート
-            current_start = start_date_datetime.astimezone(jst)
+        #     # 文字列を datetime オブジェクトに変換
+        #     start_date_datetime = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S%z")
+        #     end_date_datetime = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S%z")
 
-            for busy_start, busy_end in busy_periods:
-                # 予定のある時間帯の間に空き時間があれば追加
-                if busy_start > current_start:
-                    free_times.append((current_start, busy_start))
+        #     # UTC に変換
+        #     start_time_utc = start_date_datetime.astimezone(pytz.UTC)
+        #     end_time_utc = end_date_datetime.astimezone(pytz.UTC)
+
+        #     # Freebusy リクエストのボディを作成
+        #     request_body = {
+        #         "timeMin": start_time_utc.isoformat(),
+        #         "timeMax": end_time_utc.isoformat(),
+        #         "timeZone": "Asia/Tokyo",  # レスポンスのタイムゾーン
+        #         "items": [{"id": calendar_id}]
+        #     }
+        #     service = get_calendar_service()
+        #     # Freebusy リクエストを送信
+        #     freebusy_result = service.freebusy().query(body=request_body).execute()
+
+        #     busy_times = freebusy_result['calendars'][calendar_id]['busy']
+
+        #     # 予定のある時間帯を計算
+        #     busy_periods = []
+        #     for busy_period in busy_times:
+        #         start = busy_period['start']
+        #         end = busy_period['end']
+
+        #         # 日本時間に変換
+        #         start_time_jst = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(jst)
+        #         end_time_jst = datetime.fromisoformat(end.replace("Z", "+00:00")).astimezone(jst)
+
+        #         busy_periods.append((start_time_jst, end_time_jst))
+
+        #     # 予定のない時間帯を計算
+        #     busy_periods.sort()  # 予定のある時間帯をソート
+        #     current_start = start_date_datetime.astimezone(jst)
+
+        #     for busy_start, busy_end in busy_periods:
+        #         # 予定のある時間帯の間に空き時間があれば追加
+        #         if busy_start > current_start:
+        #             free_times.append((current_start, busy_start))
                 
-                # 空き時間の開始を更新
-                current_start = max(current_start, busy_end)
+        #         # 空き時間の開始を更新
+        #         current_start = max(current_start, busy_end)
 
-            # 最後の空き時間を追加
-            if current_start < end_date_datetime:
-                free_times.append((current_start, end_date_datetime))
+        #     # 最後の空き時間を追加
+        #     if current_start < end_date_datetime:
+        #         free_times.append((current_start, end_date_datetime))
 
-            # 空き時間を出力
-            for free_start, free_end in free_times:
-                print(f"空いている時間帯: start_time: {free_start} から end_time: {free_end}")
+        #     # 空き時間を出力
+        #     for free_start, free_end in free_times:
+        #         print(f"空いている時間帯: start_time: {free_start} から end_time: {free_end}")
 
-            return free_times
+        #     return free_times
 
             # タイムゾーンを設定
         jst = pytz.timezone('Asia/Tokyo')
@@ -1360,7 +1385,7 @@ def open_main_app(email):
         def on_check_button_click():
             start_date, end_date = get_date_range()
             # 空き時間を取得
-            free_times = get_free_times()
+            free_times = fetch_free_times()
             # ボタンがクリックされたときに呼ばれる関数
             task_duration_minutes = get_task_duration()
             selected_ranges = get_selected_time_ranges()
@@ -1515,7 +1540,7 @@ def open_main_app(email):
             service = get_calendar_service()
             # 選択されたタスクの名前とUUIDがある場合のみ実行
             if schedule_manager.selected_task_name and schedule_manager.selected_task_uuid:
-                free_times = get_free_times()
+                free_times = fetch_free_times()
                 task_duration = get_task_duration()
                 start_date, end_date = get_date_range()
                 selected_time_ranges = get_selected_time_ranges()
@@ -1548,7 +1573,7 @@ def open_main_app(email):
         add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加", command=on_insert_button_click)
         add_event_button.grid(row=12, column=0, pady=20)
 
-        test_button = ctk.CTkButton(event_window, text="test", command=get_free_times)
+        test_button = ctk.CTkButton(event_window, text="test", command=fetch_free_times)
         test_button.grid(row=12, column=1, pady=20)
     
     
@@ -1799,6 +1824,8 @@ def open_main_app(email):
     user_information_frame = ctk.CTkFrame(notebook)
     notebook.add(user_information_frame, text="ユーザ情報")
 
+    auth_button = tk.Button(user_information_frame, text="Login with Google", command=start_google_auth)
+    auth_button.grid(pady=20)
 
     # ダブルクリックイベントのバインディング
     schedule_listbox.bind('<Double-1>', lambda event: show_schedule_details(event, schedule_manager))

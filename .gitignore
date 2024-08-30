@@ -7,5 +7,4 @@ token.pickle
 sent_message_id.txt
 forms_id.txt
 venv
-config.py
 database.db
