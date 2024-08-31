@@ -1,20 +1,11 @@
-import sqlite3
+from flask_sqlalchemy import SQLAlchemy
 
-def create_connection():
-    conn = sqlite3.connect('database.db')
-    return conn
 
-def create_table():
-    conn = create_connection()
-    with conn:
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT NOT NULL UNIQUE,
-            password TEXT NOT NULL
-        )
-        ''')
-    conn.close()
+db = SQLAlchemy()
 
-# アプリケーションの開始時にテーブルを作成
-create_table()
+class Users(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+
