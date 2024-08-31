@@ -40,112 +40,81 @@ ctk.set_default_color_theme("blue")  # カラーテーマの設定
 # アプリケーションウィンドウの作成
 app = ctk.CTk()
 app.geometry("400x300")
-app.title("ユーザー認証")
+app.title("Login")
 
-# 選択画面のフレーム
-select_frame = ctk.CTkFrame(app)
-select_frame.pack(pady=50, padx=50, fill="both", expand=True)
+# サインインウィンドウを開く
+def open_signin_window():
+    signin_window = ctk.CTkToplevel()
+    signin_window.title("Sign In")
+    signin_window.geometry("300x200")
 
-# サインイン・サインアップの選択
-def show_signin():
-    select_frame.pack_forget()
-    show_signin_form()
+    email_entry = ctk.CTkEntry(signin_window, placeholder_text="Email")
+    email_entry.pack(pady=10)
 
-def show_signup():
-    select_frame.pack_forget()
-    show_signup_form()
+    password_entry = ctk.CTkEntry(signin_window, placeholder_text="Password", show="*")
+    password_entry.pack(pady=10)
 
-signin_button = ctk.CTkButton(select_frame, text="サインイン", command=show_signin)
-signin_button.grid(row=0, column=0, pady=10, padx=10)
+    signin_button = ctk.CTkButton(signin_window, text="Sign In", command=lambda: submit_signin(email_entry.get(), password_entry.get(), signin_window))
+    signin_button.pack(pady=10)
 
-signup_button = ctk.CTkButton(select_frame, text="サインアップ", command=show_signup)
-signup_button.grid(row=1, column=0, pady=10, padx=10)
+# サインアップウィンドウを開く
+def open_signup_window():
+    signup_window = ctk.CTkToplevel()
+    signup_window.title("Sign Up")
+    signup_window.geometry("300x300")
 
-def show_signin_form():
-    signin_frame = ctk.CTkFrame(app)
-    signin_frame.pack(pady=50, padx=50, fill="both", expand=True)
+    email_entry = ctk.CTkEntry(signup_window, placeholder_text="Email")
+    email_entry.pack(pady=10)
 
-    email_label = ctk.CTkLabel(signin_frame, text="メールアドレス")
-    email_label.grid(row=0, column=0, pady=10, padx=10)
-    email_entry = ctk.CTkEntry(signin_frame)
-    email_entry.grid(row=0, column=1, pady=10, padx=10)
+    password_entry = ctk.CTkEntry(signup_window, placeholder_text="Password", show="*")
+    password_entry.pack(pady=10)
 
-    password_label = ctk.CTkLabel(signin_frame, text="パスワード")
-    password_label.grid(row=1, column=0, pady=10, padx=10)
-    password_entry = ctk.CTkEntry(signin_frame, show="*")
-    password_entry.grid(row=1, column=1, pady=10, padx=10)
+    signup_button = ctk.CTkButton(signup_window, text="Sign Up with Email", command=lambda: submit_signup(email_entry.get(), password_entry.get(), signup_window))
+    signup_button.pack(pady=10)
 
-    # サインイン処理
-    def signin():
-        email = email_entry.get()
-        password = password_entry.get()
+    google_signup_button = ctk.CTkButton(signup_window, text="Sign Up with Google", command=lambda: signup_with_google(signup_window))
+    google_signup_button.pack(pady=10)
 
-        # サーバーに送信するデータを作成
-        data = {
-            'email': email,
-            'password': password
-        }
+# サインインボタンの作成
+signin_button = ctk.CTkButton(app, text="Sign In", command=open_signin_window)
+signin_button.pack(pady=20)
 
-        try:
-            response = requests.post(server_url + "/login", json=data)
-            if response.status_code == 200:
-                signin_label.configure(text="サインイン成功", text_color="green")
-                open_main_app(email)
-                signin_frame.destroy()
-            else:
-                signin_label.configure(text="サインイン失敗", text_color="red")
-        except requests.RequestException as e:
-            signin_label.configure(text=f"リクエストエラー: {str(e)}", text_color="red")
+# サインアップボタンの作成
+signup_button = ctk.CTkButton(app, text="Sign Up", command=open_signup_window)
+signup_button.pack(pady=20)
 
-    signin_button = ctk.CTkButton(signin_frame, text="サインイン", command=signin)
-    signin_button.grid(row=2, columnspan=2, pady=20)
+# サインイン処理
+def submit_signin(email, password, window):
+    # サインイン処理をここに実装する
+    # 例: Flaskサーバーにリクエストを送信して認証を行う
 
-    signin_label = ctk.CTkLabel(signin_frame, text="")
-    signin_label.grid(row=3, columnspan=2)
+    messagebox.showinfo("Sign In", "Signed in successfully")
+    window.destroy()
 
+# サインアップ処理
+def submit_signup(email, password, window):
+    # サインアップ処理をここに実装する
+    # 例: Flaskサーバーにリクエストを送信してユーザーを登録する
 
-def show_signup_form():
-    signup_frame = ctk.CTkFrame(app)
-    signup_frame.pack(pady=50, padx=50, fill="both", expand=True)
+    messagebox.showinfo("Sign Up", "Signed up successfully")
+    window.destroy()
 
-    email_label = ctk.CTkLabel(signup_frame, text="メールアドレス")
-    email_label.grid(row=0, column=0, pady=10, padx=10)
-    email_entry = ctk.CTkEntry(signup_frame)
-    email_entry.grid(row=0, column=1, pady=10, padx=10)
-
-    password_label = ctk.CTkLabel(signup_frame, text="パスワード")
-    password_label.grid(row=1, column=0, pady=10, padx=10)
-    password_entry = ctk.CTkEntry(signup_frame, show="*")
-    password_entry.grid(row=1, column=1, pady=10, padx=10)
-
-    def signup():
-        email = email_entry.get()
-        password = password_entry.get()
-
-        data = {
-            'email': email,
-            'password': password
-        }
-        
-        try:
-            response = requests.post(server_url + "/register", json=data)
-            if response.status_code == 200:
-                signup_label.configure(text="ユーザー登録が完了。ログインしました", text_color="green")
-                open_main_app(email)
-                signup_frame.destroy()
-            else:
-                signup_label.configure(text=f"登録に失敗しました: {response.json().get('error')}", text_color="red")
-        except requests.RequestException as e:
-            signup_label.configure(text=f"リクエストエラー: {str(e)}", text_color="red")
-
-    signup_button = ctk.CTkButton(signup_frame, text="登録", command=signup)
-    signup_button.grid(row=2, columnspan=2, pady=20)
-
-    signup_label = ctk.CTkLabel(signup_frame, text="")
-    signup_label.grid(row=3, columnspan=2)
+# Google認証でサインアップ処理
+def signup_with_google(window):
+    # FlaskサーバーのGoogleサインアップURLを取得
+    signup_url = "http://localhost:5000/auth/signup/google"
+    
+    # ブラウザでGoogle認証画面を開く
+    webbrowser.open(signup_url)
+    
+    # ユーザーが認証を完了するのを待つ
+    # 必要であれば、トークンを受け取るための処理を実装
+    
+    messagebox.showinfo("Google Sign Up", "Signed up with Google successfully")
+    window.destroy()
 
 # メインアプリケーションの画面を開く
-def open_main_app(email):
+def open_main_app():
     # 現在のフレームを非表示にする
     for widget in app.winfo_children():
         widget.pack_forget()
@@ -1648,10 +1617,6 @@ def open_main_app(email):
     # ウィンドウの列と行の比率を設定
     app.grid_columnconfigure(0, weight=1)
     app.grid_rowconfigure(0, weight=1)
-        
-    # ログイン中のユーザー情報の表示
-    welcome_label = ctk.CTkLabel(app, text=f"こんにちは、{email}さん")
-    welcome_label.grid(pady=10, padx=10)
 
     # タスク管理タブ
     task_management_frame = ctk.CTkFrame(notebook)

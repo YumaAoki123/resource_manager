@@ -1,14 +1,15 @@
-from flask import Blueprint, request, jsonify, session, redirect, url_for
+from flask import Blueprint, request, jsonify, session, redirect, url_for, render_template
 from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3
-from models import create_connection
-from email_service import create_form, on_send_button_click
+from email_service import create_form
 from calendar_service import calculate_free_times
-import requests
-from auth import google
+from auth import google, oauth
+from werkzeug.security import generate_password_hash, check_password_hash
+from dotenv import load_dotenv
+from models import db, Users
+import os
 import secrets
-
-
+load_dotenv()
 
 main = Blueprint('main', __name__)
 
@@ -17,106 +18,77 @@ main = Blueprint('main', __name__)
 def home():
     user = session.get('user')
     if user:
-        return f'Hello, {user["name"]}'
+        return f'Hello, {user.get("name") or user.get("email")}'
     return 'Not logged in'
 
-@main.route('/login', methods=['POST'])
+# ユーザー登録
+@main.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if request.method == 'POST':
+        email = request.form['email']
+        password = generate_password_hash(request.form['password'], method='sha256')
+        new_user = Users(email=email, password=password)
+        db.session.add(new_user)
+        db.session.commit()
+        return redirect(url_for('main.login'))
+    return render_template('signup.html')
+
+# ユーザーログイン
+@main.route('/login', methods=['GET', 'POST'])
 def login():
-    data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
-    
-    if not email or not password:
-        return jsonify({"error": "メールアドレスとパスワードが必要です"}), 400
-    
-    conn = create_connection()
-    user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
-    conn.close()
+    if request.method == 'POST':
+        email = request.form['email']
+        password = request.form['password']
+        user = Users.query.filter_by(email=email).first()
+        if user and check_password_hash(user.password, password):
+            session['user'] = {'email': user.email}
+            return redirect(url_for('main.profile'))
+        return 'Invalid credentials'
+    return render_template('login.html')
 
-    if user and check_password_hash(user[2], password):  # user[2] はパスワードハッシュ
-        # セッションの管理など
-        return jsonify({"message": "ログイン成功"}), 200
-    else:
-        return jsonify({"error": "無効なメールアドレスまたはパスワード"}), 401
-    
+# ユーザープロフィール
+@main.route('/profile')
+def profile():
+    user = session.get('user')
+    if user:
+        return f"Logged in as: {user.get('email') or user.get('name')}"
+    return redirect(url_for('main.login'))
 
-@main.route('/logout', methods=['POST'])
-def logout():
-    # セッションの管理など
-    return jsonify({"message": "ログアウト成功"}), 200
-
-
-
-@main.route('/register', methods=['POST'])
-def register():
-    data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
-
-    if not email or not password:
-        return jsonify({"error": "メールアドレスとパスワードは必須です"}), 400
-
-    # パスワードをハッシュ化
-    hashed_password = generate_password_hash(password)
-
-    # データベースに保存する処理
-    conn = create_connection()
-    cursor = conn.cursor()
-
-    # 既存のユーザーをチェック
-    cursor.execute("SELECT * FROM users WHERE email=?", (email,))
-    if cursor.fetchone():
-        return jsonify({"error": "このメールアドレスは既に登録されています"}), 400
-
-    cursor.execute("INSERT INTO users (email, password) VALUES (?, ?)", (email, hashed_password))
-    conn.commit()
-
-    # ユーザーIDの取得
-    cursor.execute("SELECT id FROM users WHERE email=?", (email,))
-    user_id = cursor.fetchone()[0]
-    conn.close()
-
-    # セッションにユーザー情報を保存（自動ログイン）
-    session['user_id'] = user_id
-    session['email'] = email
-
-    return jsonify({"message": "ユーザー登録が完了し、ログインしました"}), 200
-
-
-@main.route('/submit-tasks', methods=['POST'])
-def submit_tasks():
-    data = request.get_json()
-    
-    user_id = data.get('user_id')
-    tasks = data.get('tasks')
-
-    if not user_id or not tasks:
-        return jsonify({"error": "ユーザIDとタスク情報が必要です"}), 400
-    
-    # ここでタスク情報をフォームに追加するために必要な処理を実行
-    form_url = create_form(tasks)  # 引数に tasks を渡す
-    
-    # ユーザーにメールを送信する
-    on_send_button_click(user_id, form_url)  # form_urlを使ってメール送信
-
-    return jsonify({"message": "タスク情報が処理されました"}), 200
-
-# Googleログインエンドポイント
-@main.route('/google-login')
-def google_login():
-    nonce = secrets.token_urlsafe(16)  # ランダムなnonceを生成
-    session['nonce'] = nonce  # セッションに保存
+# Google OAuth 2.0 ログイン
+@main.route('/signup/google')
+def login_google():
+    # Nonce を生成してセッションに保存
+    nonce = secrets.token_urlsafe(32)  # Nonceを生成
+    session['nonce'] = nonce
     redirect_uri = url_for('main.auth_callback', _external=True)
     return google.authorize_redirect(redirect_uri, nonce=nonce)
 
-# Google認証コールバック
+# Google OAuth2コールバックルート
 @main.route('/auth/callback')
 def auth_callback():
     token = google.authorize_access_token()
-    nonce = session.pop('nonce', None)  # セッションからnonceを取得
-    user_info = google.parse_id_token(token, nonce=nonce)  # nonceを渡してIDトークンを解析
-    session['user'] = user_info
-    return redirect(url_for('main.home'))
+    user_info = google.parse_id_token(token, nonce=session.get('nonce'))
+    
+    user = Users.query.filter_by(email=user_info['email']).first()
+    if not user:
+        # ユーザーが存在しない場合、新しく作成
+        new_user = Users(email=user_info['email'], name=user_info['name'])
+        db.session.add(new_user)
+        db.session.commit()
+        session['user'] = {'email': new_user.email, 'name': new_user.name}
+    else:
+        session['user'] = {'email': user.email, 'name': user.name}
+    
+    return redirect(url_for('profile'))
+
+# ユーザー登録 (API)
+@main.route('/register', methods=['POST'])
+def register():
+    data = request.json
+    new_user = Users(username=data['username'], email=data['email'])
+    db.session.add(new_user)
+    db.session.commit()
+    return jsonify({"message": "User registered successfully"}), 201
 
 @main.route('/get-free-times', methods=['POST'])
 def get_free_times():
@@ -130,3 +102,21 @@ def get_free_times():
         return jsonify(free_times)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+# @main.route('/submit-tasks', methods=['POST'])
+# def submit_tasks():
+#     data = request.get_json()
+    
+#     user_id = data.get('user_id')
+#     tasks = data.get('tasks')
+
+#     if not user_id or not tasks:
+#         return jsonify({"error": "ユーザIDとタスク情報が必要です"}), 400
+    
+#     # ここでタスク情報をフォームに追加するために必要な処理を実行
+#     form_url = create_form(tasks)  # 引数に tasks を渡す
+    
+#     # ユーザーにメールを送信する
+#     on_send_button_click(user_id, form_url)  # form_urlを使ってメール送信
+
+#     return jsonify({"message": "タスク情報が処理されました"}), 200

@@ -24,7 +24,6 @@ from email.mime.text import MIMEText
 from email import message_from_bytes
 import base64
 from dotenv import load_dotenv
-from models import create_connection
 
 load_dotenv()
 
@@ -128,46 +127,46 @@ def send_message(service, sender, to, subject, body):
         return None
 
 
-def on_send_button_click(user_id, form_link):
-    # Gmailサービスを取得
-    service = get_gmail_service()
+# def on_send_button_click(user_id, form_link):
+#     # Gmailサービスを取得
+#     service = get_gmail_service()
 
-    # HTML形式でタスクのチェックボックス付きメール本文を作成
-    body = '<p>達成できなかったタスクにチェックを付けて、メールを返信してください:</p>'
-    body += '<ul>'
+#     # HTML形式でタスクのチェックボックス付きメール本文を作成
+#     body = '<p>達成できなかったタスクにチェックを付けて、メールを返信してください:</p>'
+#     body += '<ul>'
     
-     # メール本文にフォームリンクを追加
-    body = f'<p>本日のタスク達成状況を以下のリンクから記入してください。</p><a href="{form_link}">Googleフォームリンク</a>'
+#      # メール本文にフォームリンクを追加
+#     body = f'<p>本日のタスク達成状況を以下のリンクから記入してください。</p><a href="{form_link}">Googleフォームリンク</a>'
 
-        # 環境変数からメールアドレスを取得
-    fromemail = os.getenv('FROMEMAIL')
-    toemail = get_user_email(user_id)  # ユーザーIDからメールアドレスを取得する関数
-    print(f"fromemail: {fromemail} toemail: {toemail}")
+#         # 環境変数からメールアドレスを取得
+#     fromemail = os.getenv('FROMEMAIL')
+#     toemail = get_user_email(user_id)  # ユーザーIDからメールアドレスを取得する関数
+#     print(f"fromemail: {fromemail} toemail: {toemail}")
 
-    # メールを送信
-    sender = fromemail  # 送信者のメールアドレス
-    recipient = toemail  # 受信者のメールアドレス
-    subject = '本日のタスク達成状況'
-    send_message(service, sender, recipient, subject, body)
+#     # メールを送信
+#     sender = fromemail  # 送信者のメールアドレス
+#     recipient = toemail  # 受信者のメールアドレス
+#     subject = '本日のタスク達成状況'
+#     send_message(service, sender, recipient, subject, body)
    
-    print("メールが送信されました")
+#     print("メールが送信されました")
 
-# ユーザーIDからメールアドレスを取得する関数
-def get_user_email(user_id):
-    conn = create_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT email FROM users WHERE id = ?", (user_id,))
-        result = cursor.fetchone()
-        if result:
-            return result[0]  # メールアドレスを返す
-        else:
-            raise ValueError("ユーザーIDが見つかりません")
-    except Exception as e:
-        print(f"Error retrieving email: {e}")
-        return None
-    finally:
-        conn.close()
+# # ユーザーIDからメールアドレスを取得する関数
+# def get_user_email(user_id):
+#     conn = create_connection()
+#     try:
+#         cursor = conn.cursor()
+#         cursor.execute("SELECT email FROM users WHERE id = ?", (user_id,))
+#         result = cursor.fetchone()
+#         if result:
+#             return result[0]  # メールアドレスを返す
+#         else:
+#             raise ValueError("ユーザーIDが見つかりません")
+#     except Exception as e:
+#         print(f"Error retrieving email: {e}")
+#         return None
+#     finally:
+#         conn.close()
 
 
 #フォームの作成
