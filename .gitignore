@@ -8,3 +8,5 @@ sent_message_id.txt
 forms_id.txt
 venv
 database.db
+migrations
+instance

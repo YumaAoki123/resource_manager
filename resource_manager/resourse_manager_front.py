@@ -99,19 +99,45 @@ def submit_signup(email, password, window):
     messagebox.showinfo("Sign Up", "Signed up successfully")
     window.destroy()
 
+
 # Google認証でサインアップ処理
 def signup_with_google(window):
-    # FlaskサーバーのGoogleサインアップURLを取得
-    signup_url = "http://localhost:5000/auth/signup/google"
-    
-    # ブラウザでGoogle認証画面を開く
-    webbrowser.open(signup_url)
-    
-    # ユーザーが認証を完了するのを待つ
-    # 必要であれば、トークンを受け取るための処理を実装
-    
-    messagebox.showinfo("Google Sign Up", "Signed up with Google successfully")
-    window.destroy()
+    def run_signup():
+        signup_url = "http://localhost:5000/auth/signup/google"
+        webbrowser.open(signup_url)
+
+        token = None
+        try:
+            while token is None:
+                response = requests.get("http://localhost:5000/auth/get-token")
+                if response.status_code == 200:
+                    response_json = response.json()
+                    if 'token' in response_json:
+                        token = response_json['token']
+                        print(f"Token received: {token}")  # トークンを取得した際に出力
+                    elif 'error' in response_json:
+                        print("Error: ", response_json['error'])
+                        break
+                else:
+                    print(f"Unexpected status code: {response.status_code}")
+                
+                time.sleep(1)  # トークンが取得できるまで待機
+
+            if token:
+                print("Proceeding with the token...")  # ここでトークンが正しく取得できたか確認
+                messagebox.showinfo("Google Sign Up", "Signed up with Google successfully")
+                window.destroy()
+                open_main_app()
+            else:
+                print("No token received.")  # トークンが取得できなかった場合
+                messagebox.showerror("Error", "Failed to retrieve token.")
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error occurred: {e}")
+            messagebox.showerror("Error", "Failed to sign up with Google. Please try again.")
+
+    threading.Thread(target=run_signup).start()
+
 
 # メインアプリケーションの画面を開く
 def open_main_app():

@@ -1,13 +1,10 @@
 from flask import Blueprint, request, jsonify, session, redirect, url_for, render_template
 from werkzeug.security import generate_password_hash, check_password_hash
-import sqlite3
 from email_service import create_form
 from calendar_service import calculate_free_times
 from auth import google, oauth
-from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
-from models import db, Users
-import os
+from model.models import db, User
 import secrets
 load_dotenv()
 
@@ -27,7 +24,7 @@ def signup():
     if request.method == 'POST':
         email = request.form['email']
         password = generate_password_hash(request.form['password'], method='sha256')
-        new_user = Users(email=email, password=password)
+        new_user = User(email=email, password=password)
         db.session.add(new_user)
         db.session.commit()
         return redirect(url_for('main.login'))
@@ -39,7 +36,7 @@ def login():
     if request.method == 'POST':
         email = request.form['email']
         password = request.form['password']
-        user = Users.query.filter_by(email=email).first()
+        user = User.query.filter_by(email=email).first()
         if user and check_password_hash(user.password, password):
             session['user'] = {'email': user.email}
             return redirect(url_for('main.profile'))
@@ -69,23 +66,33 @@ def auth_callback():
     token = google.authorize_access_token()
     user_info = google.parse_id_token(token, nonce=session.get('nonce'))
     
-    user = Users.query.filter_by(email=user_info['email']).first()
+    user = User.query.filter_by(email=user_info['email']).first()
     if not user:
         # ユーザーが存在しない場合、新しく作成
-        new_user = Users(email=user_info['email'], name=user_info['name'])
+        new_user = User(email=user_info['email'], name=user_info['name'])
         db.session.add(new_user)
         db.session.commit()
         session['user'] = {'email': new_user.email, 'name': new_user.name}
     else:
         session['user'] = {'email': user.email, 'name': user.name}
-    
-    return redirect(url_for('profile'))
+        
+    session['oauth_token'] = token['access_token']
+    # トークンをURLに含めてリダイレクト
+    return redirect(f"http://localhost:5000/auth/success?token={token['access_token']}")
 
+@main.route('/auth/get-token')
+def get_token():
+    token = session.get('oauth_token')
+    if token:
+        return jsonify({'token': token})
+    else:
+        return jsonify({'error': 'Token not found'}), 400
+    
 # ユーザー登録 (API)
 @main.route('/register', methods=['POST'])
 def register():
     data = request.json
-    new_user = Users(username=data['username'], email=data['email'])
+    new_user = User(username=data['name'], email=data['email'])
     db.session.add(new_user)
     db.session.commit()
     return jsonify({"message": "User registered successfully"}), 201
