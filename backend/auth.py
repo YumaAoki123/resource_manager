@@ -11,3 +11,4 @@ google = oauth.register(
     redirect_uri='http://localhost:5000/auth/callback',
     scope='openid profile email',
 )
+

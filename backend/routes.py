@@ -6,6 +6,10 @@ from auth import google, oauth
 from dotenv import load_dotenv
 from model.models import db, User
 import secrets
+import time
+from authlib.integrations.requests_client import OAuth2Session
+from flask import redirect, request
+
 load_dotenv()
 
 main = Blueprint('main', __name__)
@@ -17,6 +21,18 @@ def home():
     if user:
         return f'Hello, {user.get("name") or user.get("email")}'
     return 'Not logged in'
+
+@main.route('/set-session')
+def set_session():
+    session['key'] = 'value'
+    return redirect(url_for('get_session'))
+
+@main.route('/get-session')
+def get_session():
+    value = session.get('key')
+    if value:
+        return f'Session Value: {value}'
+    return 'No session found'
 
 # ユーザー登録
 @main.route('/signup', methods=['GET', 'POST'])
@@ -60,34 +76,38 @@ def login_google():
     redirect_uri = url_for('main.auth_callback', _external=True)
     return google.authorize_redirect(redirect_uri, nonce=nonce)
 
+
 # Google OAuth2コールバックルート
 @main.route('/auth/callback')
 def auth_callback():
     token = google.authorize_access_token()
     user_info = google.parse_id_token(token, nonce=session.get('nonce'))
-    
+
     user = User.query.filter_by(email=user_info['email']).first()
     if not user:
-        # ユーザーが存在しない場合、新しく作成
         new_user = User(email=user_info['email'], name=user_info['name'])
         db.session.add(new_user)
         db.session.commit()
         session['user'] = {'email': new_user.email, 'name': new_user.name}
     else:
         session['user'] = {'email': user.email, 'name': user.name}
-        
-    session['oauth_token'] = token['access_token']
-    # トークンをURLに含めてリダイレクト
-    return redirect(f"http://localhost:5000/auth/success?token={token['access_token']}")
 
-@main.route('/auth/get-token')
-def get_token():
-    token = session.get('oauth_token')
-    if token:
-        return jsonify({'token': token})
+    return redirect(url_for('main.home'))  # 認証成功後にリダイレクトする場所
+
+@main.route('/api/user_info')
+def api_user_info():
+    if 'user' in session:
+        return session['user']
     else:
-        return jsonify({'error': 'Token not found'}), 400
-    
+        return {'error': 'Not authenticated'}, 401
+                
+        
+
+
+
+
+
+
 # ユーザー登録 (API)
 @main.route('/register', methods=['POST'])
 def register():
