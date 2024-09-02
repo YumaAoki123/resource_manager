@@ -27,6 +27,7 @@ import requests
 from dotenv import load_dotenv
 import webbrowser
 import json
+
 load_dotenv()
 
 server_url = os.getenv('SERVER_URL')  
@@ -74,6 +75,8 @@ def open_signup_window():
 
     google_signup_button = ctk.CTkButton(signup_window, text="Sign Up with Google", command=lambda: signup_with_google(signup_window))
     google_signup_button.pack(pady=10)
+    google_check_button = ctk.CTkButton(signup_window, text="Sign Up Check", command=lambda: get_user_info())
+    google_check_button.pack(pady=10)
 
 # サインインボタンの作成
 signin_button = ctk.CTkButton(app, text="Sign In", command=open_signin_window)
@@ -100,43 +103,22 @@ def submit_signup(email, password, window):
     window.destroy()
 
 
-# Google認証でサインアップ処理
 def signup_with_google(window):
-    def run_signup():
-        signup_url = "http://localhost:5000/auth/signup/google"
-        webbrowser.open(signup_url)
+    signup_url = "http://localhost:5000/signup/google"
+    webbrowser.open(signup_url)
 
-        token = None
-        try:
-            while token is None:
-                response = requests.get("http://localhost:5000/auth/get-token")
-                if response.status_code == 200:
-                    response_json = response.json()
-                    if 'token' in response_json:
-                        token = response_json['token']
-                        print(f"Token received: {token}")  # トークンを取得した際に出力
-                    elif 'error' in response_json:
-                        print("Error: ", response_json['error'])
-                        break
-                else:
-                    print(f"Unexpected status code: {response.status_code}")
-                
-                time.sleep(1)  # トークンが取得できるまで待機
 
-            if token:
-                print("Proceeding with the token...")  # ここでトークンが正しく取得できたか確認
-                messagebox.showinfo("Google Sign Up", "Signed up with Google successfully")
-                window.destroy()
-                open_main_app()
-            else:
-                print("No token received.")  # トークンが取得できなかった場合
-                messagebox.showerror("Error", "Failed to retrieve token.")
-
-        except requests.exceptions.RequestException as e:
-            print(f"Error occurred: {e}")
-            messagebox.showerror("Error", "Failed to sign up with Google. Please try again.")
-
-    threading.Thread(target=run_signup).start()
+def get_user_info():
+    try:
+        response = requests.get('http://localhost:5000/api/user_info')
+        response.raise_for_status()  # HTTPエラーが発生した場合に例外を投げる
+        user_info = response.json()
+        if 'error' in user_info:
+            print("Error:", user_info['error'])
+        else:
+            print("User Info:", user_info)
+    except requests.RequestException as e:
+        print("Failed to retrieve user info:", e)
 
 
 # メインアプリケーションの画面を開く

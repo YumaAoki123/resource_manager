@@ -5,14 +5,19 @@ import os
 from auth import oauth
 from routes import main  # Import blueprints here to avoid circular imports
 import model.models
+from flask_session import Session
+from config import Config
+
+
+
 
 def create_app():
     app = Flask(__name__)
 
-    app.config.from_object('config.Config')
+    app.config.from_object(Config)
      # Set the secret key
     app.secret_key = os.environ.get("SECRET_KEY")
-   
+    
     
     # Initialize the database and migration
     init_db(app)
@@ -20,7 +25,7 @@ def create_app():
     oauth.init_app(app)
     
     # Register blueprints
-    app.register_blueprint(main, url_prefix='/auth')
+    app.register_blueprint(main)
 
     return app
 
