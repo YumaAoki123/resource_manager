@@ -73,10 +73,9 @@ def open_signup_window():
     signup_button = ctk.CTkButton(signup_window, text="Sign Up with Email", command=lambda: submit_signup(email_entry.get(), password_entry.get(), signup_window))
     signup_button.pack(pady=10)
 
-    google_signup_button = ctk.CTkButton(signup_window, text="Sign Up with Google", command=lambda: signup_with_google(signup_window))
+    google_signup_button = ctk.CTkButton(signup_window, text="Sign Up with Google", command=start_polling)
     google_signup_button.pack(pady=10)
-    google_check_button = ctk.CTkButton(signup_window, text="Sign Up Check", command=lambda: get_user_info())
-    google_check_button.pack(pady=10)
+
 
 # サインインボタンの作成
 signin_button = ctk.CTkButton(app, text="Sign In", command=open_signin_window)
@@ -102,27 +101,26 @@ def submit_signup(email, password, window):
     messagebox.showinfo("Sign Up", "Signed up successfully")
     window.destroy()
 
-
-def signup_with_google(window):
-    signup_url = "http://localhost:5000/signup/google"
-    webbrowser.open(signup_url)
+from requests_oauthlib import OAuth2Session
 
 
-def get_user_info():
-    try:
-        response = requests.get('http://localhost:5000/api/user_info')
-        response.raise_for_status()  # HTTPエラーが発生した場合に例外を投げる
-        user_info = response.json()
-        if 'error' in user_info:
-            print("Error:", user_info['error'])
-        else:
-            print("User Info:", user_info)
-    except requests.RequestException as e:
-        print("Failed to retrieve user info:", e)
+def handle_auth_callback():
+
+    
+    # 認証エンドポイントにリクエスト
+    authorization_url = 'http://localhost:5000/login_google'
+    
+    webbrowser.open(authorization_url)
+
+def start_polling():
+    # ポーリングを別スレッドで実行
+    polling_thread = threading.Thread(target=handle_auth_callback)
+    polling_thread.start()
+
 
 
 # メインアプリケーションの画面を開く
-def open_main_app():
+def open_main_app(token):
     # 現在のフレームを非表示にする
     for widget in app.winfo_children():
         widget.pack_forget()
