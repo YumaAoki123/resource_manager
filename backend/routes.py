@@ -13,6 +13,7 @@ import requests
 import webbrowser
 from requests_oauthlib import OAuth2Session
 from flask_session import Session
+import json
 load_dotenv()
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
@@ -27,7 +28,7 @@ token_url = 'https://accounts.google.com/o/oauth2/token'
 main = Blueprint('main', __name__)
 
 # ホームエンドポイント
-@main.route('/home')
+@main.route('/token_received?token={token["access_token"')
 def home():
 
     return 'Welcome to the home page'
@@ -35,58 +36,30 @@ def home():
 
 client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
 
-@main.route('/login_google')
-def login_google():
-    # OAuth2 セッションを開始
+@main.route('/google_login')
+def google_login():
+    # クライアントが生成した `state` をセッションに保存
+    state = secrets.token_urlsafe()
+    session['state'] = state
+
     google = OAuth2Session(client_id, redirect_uri=redirect_uri, scope=['openid', 'email', 'profile'])
-
-    # 認証URLを生成
-    authorization_url, state = google.authorization_url(authorization_base_url,
-                                                        access_type="offline", prompt="select_account")
-    
-    # `state` をセッションに保存
-    session['oauth_state'] = state
-
-    # ブラウザで認証URLを開く
-    webbrowser.open(authorization_url)
-    
+    authorization_url, _ = google.authorization_url(
+        'https://accounts.google.com/o/oauth2/auth',
+        access_type="offline", prompt="select_account", state=state
+    )
     return redirect(authorization_url)
 
-# Google OAuth2コールバックルート
 @main.route('/callback')
 def callback():
-    # セッションから `state` を取得
-    google = OAuth2Session(client_id, state=session['oauth_state'], redirect_uri=redirect_uri)
+    received_state = request.args.get('state')
+    saved_state = session.get('state')
 
-    # トークンを取得
-    google.fetch_token(token_url, authorization_response=request.url, client_secret=client_secret)
-    
-    # トークン情報を表示
-    token = google.token
-    print(f'Token: {token}')
-    
-    # 認証後の処理
-    return 'Authentication complete! You can close this window.'
+    if received_state != saved_state:
+        return 'State mismatch error', 400
+    else:
+        return 'State match', 200
 
 
-# トークンを返すエンドポイント
-@main.route('/check_token', methods=['GET'])
-def check_token():
-    # URLのクエリパラメータからトークンを取得
-    token = request.args.get('token')
-    if token:
-        # トークンをセッションに保存
-        session['token'] = token
-        return jsonify({'token': token})
-    return 'No token found', 404
-            
-@main.route('/store_token', methods=['POST'])
-def store_token():
-    token = request.json.get('token')
-    if token:
-        session['token'] = token
-        return jsonify({'status': 'success'}), 200
-    return jsonify({'status': 'error', 'message': 'Token not provided'}), 400
 
 
 
