@@ -27,7 +27,8 @@ import requests
 from dotenv import load_dotenv
 import webbrowser
 import json
-
+from requests_oauthlib import OAuth2Session
+from flask import redirect, request
 load_dotenv()
 
 server_url = os.getenv('SERVER_URL')  
@@ -76,6 +77,10 @@ def open_signup_window():
     google_signup_button = ctk.CTkButton(signup_window, text="Sign Up with Google", command=start_polling)
     google_signup_button.pack(pady=10)
 
+    google_get_button = ctk.CTkButton(signup_window, text="Sign Up with Google", command=get_token)
+    google_get_button.pack(pady=10)
+  
+   
 
 # サインインボタンの作成
 signin_button = ctk.CTkButton(app, text="Sign In", command=open_signin_window)
@@ -101,26 +106,70 @@ def submit_signup(email, password, window):
     messagebox.showinfo("Sign Up", "Signed up successfully")
     window.destroy()
 
-from requests_oauthlib import OAuth2Session
-
-
+# ここにGoogleから取得したクライアントIDとシークレットを入力します。
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
+client_id = os.environ.get('GOOGLE_CLIENT_ID')
+client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
+redirect_uri = 'http://localhost:5000/callback'
+authorization_base_url = 'https://accounts.google.com/o/oauth2/auth'
+token_url = 'https://accounts.google.com/o/oauth2/token'
+# OAuth2セッションを開始
+google = OAuth2Session(client_id, redirect_uri=redirect_uri, scope=['openid', 'email', 'profile'])
+login_url = 'http://localhost:5000/google_login'
 def handle_auth_callback():
+  
+    webbrowser.open(login_url)
 
-    
-    # 認証エンドポイントにリクエスト
-    authorization_url = 'http://localhost:5000/login_google'
-    
-    webbrowser.open(authorization_url)
+ # 認証コードを取得してトークンを取得する処理
+    authorization_response = request.url
+    google = OAuth2Session(client_id, redirect_uri=redirect_uri)
+    google.fetch_token(
+        'https://oauth2.googleapis.com/token',
+        authorization_response=authorization_response,
+        client_secret=client_secret
+    )
+    token = google.token
+
+    # アクセストークンだけをセッションに保存
+    access_token = token.get('access_token')
+    print(f'Access Token: {access_token}')
+    return access_token
 
 def start_polling():
     # ポーリングを別スレッドで実行
     polling_thread = threading.Thread(target=handle_auth_callback)
     polling_thread.start()
 
+# トークンを取得するエンドポイント
+token_received_url = 'http://localhost:5000/token_received'
 
+def get_token():
+   # サーバーからのレスポンスを確認
+    callback_url = 'http://localhost:5000/callback'
+    response = requests.get(callback_url)
+    if response.status_code == 200:
+        print('State matched, proceeding to get token...')
+
+        # トークンを取得
+        token_url = 'http://localhost:5000/token_received'
+        response = requests.get(token_url)
+        print(f'Token response: {response.text}')
+        
+        token = response.json().get('token')
+
+        # トークンを使ってリソースサーバーにリクエスト
+        google = OAuth2Session(client_id, token={'access_token': token})
+        user_info = google.get('https://www.googleapis.com/oauth2/v1/userinfo').json()
+        print(f'User info: {user_info}')
+    else:
+        print('State mismatch or error occurred.')
+
+    # メインアプリケーションを開く処理
+    open_main_app(user_info)
 
 # メインアプリケーションの画面を開く
-def open_main_app(token):
+def open_main_app(user_info):
+    print("Main app opening with user:", user_info)
     # 現在のフレームを非表示にする
     for widget in app.winfo_children():
         widget.pack_forget()
