@@ -27,12 +27,64 @@ import requests
 from dotenv import load_dotenv
 import webbrowser
 import json
-from requests_oauthlib import OAuth2Session
-from flask import redirect, request
+import bcrypt
+
+
 load_dotenv()
 
-server_url = os.getenv('SERVER_URL')  
-# ユーザー登録処理
+
+ # SQLiteデータベースに接続（ファイルが存在しない場合は作成されます）
+conn = sqlite3.connect('resource_manager.db')
+cursor = conn.cursor()
+
+cursor.execute('''
+               CREATE TABLE IF NOT EXISTS users(
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               username TEXT NOT NULL,
+               password TEXT NOT NULL
+               )
+               ''')
+
+
+# テーブルを作成します（存在しない場合のみ）
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS task_info (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_uuid TEXT NOT NULL,
+    task_name TEXT NOT NULL
+)
+''')
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS task_conditions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_uuid TEXT NOT NULL,
+    task_duration INTEGER NOT NULL,
+    start_date DATETIME NOT NULL,
+    end_date DATETIME NOT NULL,
+    selected_time_range TEXT NOT NULL,
+    selected_priority INTEGER,
+    min_duration INTEGER,
+    FOREIGN KEY (task_uuid) REFERENCES task_info(task_uuid)
+)
+''')
+
+# テーブルを作成します（存在しない場合のみ）
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS event_mappings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_uuid TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    summary TEXT,
+    start_time TEXT,
+    end_time TEXT,
+    FOREIGN KEY (task_uuid) REFERENCES task_conditions(task_uuid)
+)
+''')
+
+# 接続を閉じます
+conn.commit()
+conn.close()
 
 
 # アプリケーションの初期化
@@ -74,13 +126,7 @@ def open_signup_window():
     signup_button = ctk.CTkButton(signup_window, text="Sign Up with Email", command=lambda: submit_signup(email_entry.get(), password_entry.get(), signup_window))
     signup_button.pack(pady=10)
 
-    google_signup_button = ctk.CTkButton(signup_window, text="Sign Up with Google", command=start_polling)
-    google_signup_button.pack(pady=10)
 
-    google_get_button = ctk.CTkButton(signup_window, text="Sign Up with Google", command=get_token)
-    google_get_button.pack(pady=10)
-  
-   
 
 # サインインボタンの作成
 signin_button = ctk.CTkButton(app, text="Sign In", command=open_signin_window)
@@ -105,67 +151,45 @@ def submit_signup(email, password, window):
 
     messagebox.showinfo("Sign Up", "Signed up successfully")
     window.destroy()
+# パスワードのハッシュ化
+def hash_password(password):
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+# パスワードのチェック
+def check_password(stored_password, entered_password):
+    return bcrypt.checkpw(entered_password.encode('utf-8'), stored_password)
+# ユーザーの登録
+def register_user(username, password):
+    conn = sqlite3.connect('resource_manager.db')
+    c = conn.cursor()
+    hashed_pw = hash_password(password)
+    try:
+        c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_pw))
+        conn.commit()
+        messagebox.showinfo("Success", "User registered successfully")
+    except sqlite3.IntegrityError:
+        messagebox.showerror("Error", "Username already exists")
+    conn.close()
 
-# ここにGoogleから取得したクライアントIDとシークレットを入力します。
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
-client_id = os.environ.get('GOOGLE_CLIENT_ID')
-client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
-redirect_uri = 'http://localhost:5000/callback'
-authorization_base_url = 'https://accounts.google.com/o/oauth2/auth'
-token_url = 'https://accounts.google.com/o/oauth2/token'
-# OAuth2セッションを開始
-google = OAuth2Session(client_id, redirect_uri=redirect_uri, scope=['openid', 'email', 'profile'])
-login_url = 'http://localhost:5000/google_login'
-def handle_auth_callback():
-  
-    webbrowser.open(login_url)
-
- # 認証コードを取得してトークンを取得する処理
-    authorization_response = request.url
-    google = OAuth2Session(client_id, redirect_uri=redirect_uri)
-    google.fetch_token(
-        'https://oauth2.googleapis.com/token',
-        authorization_response=authorization_response,
-        client_secret=client_secret
-    )
-    token = google.token
-
-    # アクセストークンだけをセッションに保存
-    access_token = token.get('access_token')
-    print(f'Access Token: {access_token}')
-    return access_token
-
-def start_polling():
-    # ポーリングを別スレッドで実行
-    polling_thread = threading.Thread(target=handle_auth_callback)
-    polling_thread.start()
-
-# トークンを取得するエンドポイント
-token_received_url = 'http://localhost:5000/token_received'
-
-def get_token():
-   # サーバーからのレスポンスを確認
-    callback_url = 'http://localhost:5000/callback'
-    response = requests.get(callback_url)
-    if response.status_code == 200:
-        print('State matched, proceeding to get token...')
-
-        # トークンを取得
-        token_url = 'http://localhost:5000/token_received'
-        response = requests.get(token_url)
-        print(f'Token response: {response.text}')
-        
-        token = response.json().get('token')
-
-        # トークンを使ってリソースサーバーにリクエスト
-        google = OAuth2Session(client_id, token={'access_token': token})
-        user_info = google.get('https://www.googleapis.com/oauth2/v1/userinfo').json()
-        print(f'User info: {user_info}')
+# ログインチェック
+def login(username, password):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute("SELECT password FROM users WHERE username = ?", (username,))
+    result = c.fetchone()
+    if result:
+        stored_password = result[0]
+        if check_password(stored_password, password):
+            messagebox.showinfo("Success", "Login successful")
+        else:
+            messagebox.showerror("Error", "Invalid password")
     else:
-        print('State mismatch or error occurred.')
+        messagebox.showerror("Error", "Username not found")
+    conn.close()
 
-    # メインアプリケーションを開く処理
-    open_main_app(user_info)
+
+
+
+
 
 # メインアプリケーションの画面を開く
 def open_main_app(user_info):
@@ -227,55 +251,10 @@ def open_main_app(user_info):
         forms_service = build('forms', 'v1', credentials=creds)
         return forms_service
 
-    def start_google_auth():
-        # Google認証のリダイレクトURLを指定
-        auth_url = 'http://localhost:5000/google-login'  # サーバーのログインエンドポイント
-        webbrowser.open(auth_url)
 
 
-    # SQLiteデータベースに接続（ファイルが存在しない場合は作成されます）
-    conn = sqlite3.connect('resource_manager.db')
-    cursor = conn.cursor()
 
-    # テーブルを作成します（存在しない場合のみ）
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS task_info (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_uuid TEXT NOT NULL,
-        task_name TEXT NOT NULL
-    )
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS task_conditions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_uuid TEXT NOT NULL,
-        task_duration INTEGER NOT NULL,
-        start_date DATETIME NOT NULL,
-        end_date DATETIME NOT NULL,
-        selected_time_range TEXT NOT NULL,
-        selected_priority INTEGER,
-        min_duration INTEGER,
-        FOREIGN KEY (task_uuid) REFERENCES task_info(task_uuid)
-    )
-    ''')
-
-    # テーブルを作成します（存在しない場合のみ）
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS event_mappings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_uuid TEXT NOT NULL,
-        event_id TEXT NOT NULL,
-        summary TEXT,
-        start_time TEXT,
-        end_time TEXT,
-        FOREIGN KEY (task_uuid) REFERENCES task_conditions(task_uuid)
-    )
-    ''')
-
-    # 接続を閉じます
-    conn.commit()
-    conn.close()
+   
 
     def get_today_tasks():
         # データベースに接続
@@ -1844,8 +1823,7 @@ def open_main_app(user_info):
     user_information_frame = ctk.CTkFrame(notebook)
     notebook.add(user_information_frame, text="ユーザ情報")
 
-    auth_button = tk.Button(user_information_frame, text="Login with Google", command=start_google_auth)
-    auth_button.grid(pady=20)
+
 
     # ダブルクリックイベントのバインディング
     schedule_listbox.bind('<Double-1>', lambda event: show_schedule_details(event, schedule_manager))
