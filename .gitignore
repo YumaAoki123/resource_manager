@@ -10,3 +10,4 @@ venv
 database.db
 migrations
 instance
+test.drawio
