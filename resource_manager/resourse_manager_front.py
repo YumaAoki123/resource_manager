@@ -27,11 +27,13 @@ import requests
 from dotenv import load_dotenv
 import webbrowser
 import json
-import bcrypt
+
 
 
 load_dotenv()
 
+# セッションを作成
+session = requests.Session()
 
  # SQLiteデータベースに接続（ファイルが存在しない場合は作成されます）
 conn = sqlite3.connect('resource_manager.db')
@@ -108,8 +110,10 @@ def open_signin_window():
     password_entry = ctk.CTkEntry(signin_window, placeholder_text="Password", show="*")
     password_entry.pack(pady=10)
 
-    signin_button = ctk.CTkButton(signin_window, text="Sign In", command=lambda: submit_signin(username_entry.get(), password_entry.get(), signin_window))
-    signin_button.pack(pady=10)
+    # signin_button = ctk.CTkButton(signin_window, text="Sign In", command=lambda: submit_signin(username_entry.get(), password_entry.get(), signin_window))
+    # signin_button.pack(pady=10)
+
+    
 
 # サインアップウィンドウを開く
 def open_signup_window():
@@ -136,13 +140,13 @@ signin_button.pack(pady=20)
 signup_button = ctk.CTkButton(app, text="Sign Up", command=open_signup_window)
 signup_button.pack(pady=20)
 
-# サインイン処理
-def submit_signin(username, password, window):
-    user_info = login(username, password)
-    print(f'userinfo{user_info}')
-    if user_info:
-        window.destroy()
-        open_main_app(user_info)
+# # サインイン処理
+# def submit_signin(username, password, window):
+#     user_info = login(username, password)
+#     print(f'userinfo{user_info}')
+#     if user_info:
+#         window.destroy()
+#         open_main_app(user_info)
   
 
 # サインアップ処理
@@ -153,55 +157,32 @@ def submit_signup(username, password, window):
         open_main_app(username)
     else:
         messagebox.showerror("Error", "Please enter both username and password")
-# パスワードのハッシュ化
-# パスワードをハッシュ化する
-def hash_password(password):
-    # パスワードをバイトに変換し、ソルトとともにハッシュ化
-    hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-    return hashed
 
-# ハッシュ化されたパスワードと入力されたパスワードを比較する
-def check_password(stored_password, entered_password):
-    return bcrypt.checkpw(entered_password.encode('utf-8'), stored_password)
-# ユーザーの登録
+
 def register_user(username, password):
-    conn = sqlite3.connect('resource_manager.db')
-    c = conn.cursor()
-    hashed_pw = hash_password(password)
+    # ログインリクエストを送信して、サーバーからクッキーを取得
+    login_url = 'http://localhost:5000/registar'
+    login_data = {
+            'username': username,
+            'password': password
+        }
     try:
-        c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_pw))
-        conn.commit()
-        messagebox.showinfo("Success", "User registered successfully")
-    except sqlite3.IntegrityError:
-        messagebox.showerror("Error", "Username already exists")
-    conn.close()
+        # セッションを使用してサーバーと通信
+        session = requests.Session()
+        response = session.post(login_url, json=login_data)
 
-
-
-# ログインチェック
-def login(username, password):
-    conn = sqlite3.connect('resource_manager.db')
-    c = conn.cursor()
-    
-    # データベースからパスワードを取得
-    c.execute("SELECT password FROM users WHERE username = ?", (username,))
-    result = c.fetchone()
-    
-    if result:
-        stored_password = result[0]  # タプルの1番目の要素がパスワード
-        # パスワードのチェック
-        if check_password(stored_password, password):
-            messagebox.showinfo("Success", "Login successful")
-            return {"username": username}
+        # レスポンスが成功した場合
+        if response.status_code == 201:
+           
+            print("クッキー:", session.cookies.get_dict())  # クッキーを確認するための出力
+        elif response.status_code == 409:
+            print("エラー: ユーザー名が既に存在します")
         else:
-            messagebox.showerror("Error", "Invalid password")
-            return None
-    else:
-        messagebox.showerror("Error", "Username not found")
-    conn.close()
-    return None
+            print(f"エラー: {response.status_code}")
+    except requests.RequestException as e:
+        print(f"リクエストエラー: {e}")
 
-
+    
 
 
 # メインアプリケーションの画面を開く
