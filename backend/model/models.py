@@ -1,10 +1,27 @@
-from flask_sqlalchemy import SQLAlchemy
-from database import db
+from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
 
-class User(db.Model):
+# ベースクラスを作成
+Base = declarative_base()
+
+# ユーザーテーブルの定義
+class User(Base):
     __tablename__ = 'users'
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
 
+    id = Column(Integer, primary_key=True)
+    username = Column(String, unique=True)
+    password = Column(String)
+
+# SQLiteエンジンを作成
+engine = create_engine('sqlite:///users.db')
+
+# テーブルを作成
+Base.metadata.create_all(engine)
+
+# セッションを作成
+Session = sessionmaker(bind=engine)
+session = Session()
+
+# 初期化関数は不要になります

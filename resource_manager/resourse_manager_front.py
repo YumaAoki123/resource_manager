@@ -27,11 +27,13 @@ import requests
 from dotenv import load_dotenv
 import webbrowser
 import json
-import bcrypt
+
 
 
 load_dotenv()
 
+# セッションを作成
+session = requests.Session()
 
  # SQLiteデータベースに接続（ファイルが存在しない場合は作成されます）
 conn = sqlite3.connect('resource_manager.db')
@@ -102,14 +104,16 @@ def open_signin_window():
     signin_window.title("Sign In")
     signin_window.geometry("300x200")
 
-    email_entry = ctk.CTkEntry(signin_window, placeholder_text="Email")
-    email_entry.pack(pady=10)
+    username_entry = ctk.CTkEntry(signin_window, placeholder_text="username")
+    username_entry.pack(pady=10)
 
     password_entry = ctk.CTkEntry(signin_window, placeholder_text="Password", show="*")
     password_entry.pack(pady=10)
 
-    signin_button = ctk.CTkButton(signin_window, text="Sign In", command=lambda: submit_signin(email_entry.get(), password_entry.get(), signin_window))
-    signin_button.pack(pady=10)
+    # signin_button = ctk.CTkButton(signin_window, text="Sign In", command=lambda: submit_signin(username_entry.get(), password_entry.get(), signin_window))
+    # signin_button.pack(pady=10)
+
+    
 
 # サインアップウィンドウを開く
 def open_signup_window():
@@ -117,13 +121,13 @@ def open_signup_window():
     signup_window.title("Sign Up")
     signup_window.geometry("300x300")
 
-    email_entry = ctk.CTkEntry(signup_window, placeholder_text="Email")
-    email_entry.pack(pady=10)
+    username_entry = ctk.CTkEntry(signup_window, placeholder_text="username")
+    username_entry.pack(pady=10)
 
     password_entry = ctk.CTkEntry(signup_window, placeholder_text="Password", show="*")
     password_entry.pack(pady=10)
 
-    signup_button = ctk.CTkButton(signup_window, text="Sign Up with Email", command=lambda: submit_signup(email_entry.get(), password_entry.get(), signup_window))
+    signup_button = ctk.CTkButton(signup_window, text="Sign Up with Email", command=lambda: submit_signup(username_entry.get(), password_entry.get(), signup_window))
     signup_button.pack(pady=10)
 
 
@@ -136,59 +140,49 @@ signin_button.pack(pady=20)
 signup_button = ctk.CTkButton(app, text="Sign Up", command=open_signup_window)
 signup_button.pack(pady=20)
 
-# サインイン処理
-def submit_signin(email, password, window):
-    # サインイン処理をここに実装する
-    # 例: Flaskサーバーにリクエストを送信して認証を行う
-
-    messagebox.showinfo("Sign In", "Signed in successfully")
-    window.destroy()
+# # サインイン処理
+# def submit_signin(username, password, window):
+#     user_info = login(username, password)
+#     print(f'userinfo{user_info}')
+#     if user_info:
+#         window.destroy()
+#         open_main_app(user_info)
+  
 
 # サインアップ処理
-def submit_signup(email, password, window):
-    # サインアップ処理をここに実装する
-    # 例: Flaskサーバーにリクエストを送信してユーザーを登録する
-
-    messagebox.showinfo("Sign Up", "Signed up successfully")
-    window.destroy()
-# パスワードのハッシュ化
-def hash_password(password):
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-# パスワードのチェック
-def check_password(stored_password, entered_password):
-    return bcrypt.checkpw(entered_password.encode('utf-8'), stored_password)
-# ユーザーの登録
-def register_user(username, password):
-    conn = sqlite3.connect('resource_manager.db')
-    c = conn.cursor()
-    hashed_pw = hash_password(password)
-    try:
-        c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_pw))
-        conn.commit()
-        messagebox.showinfo("Success", "User registered successfully")
-    except sqlite3.IntegrityError:
-        messagebox.showerror("Error", "Username already exists")
-    conn.close()
-
-# ログインチェック
-def login(username, password):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute("SELECT password FROM users WHERE username = ?", (username,))
-    result = c.fetchone()
-    if result:
-        stored_password = result[0]
-        if check_password(stored_password, password):
-            messagebox.showinfo("Success", "Login successful")
-        else:
-            messagebox.showerror("Error", "Invalid password")
+def submit_signup(username, password, window):
+    if username and password:
+        register_user(username, password)
+        window.destroy()
+        open_main_app(username)
     else:
-        messagebox.showerror("Error", "Username not found")
-    conn.close()
+        messagebox.showerror("Error", "Please enter both username and password")
 
 
+def register_user(username, password):
+    # ログインリクエストを送信して、サーバーからクッキーを取得
+    login_url = 'http://localhost:5000/registar'
+    login_data = {
+            'username': username,
+            'password': password
+        }
+    try:
+        # セッションを使用してサーバーと通信
+        session = requests.Session()
+        response = session.post(login_url, json=login_data)
 
+        # レスポンスが成功した場合
+        if response.status_code == 201:
+           
+            print("クッキー:", session.cookies.get_dict())  # クッキーを確認するための出力
+        elif response.status_code == 409:
+            print("エラー: ユーザー名が既に存在します")
+        else:
+            print(f"エラー: {response.status_code}")
+    except requests.RequestException as e:
+        print(f"リクエストエラー: {e}")
 
+    
 
 
 # メインアプリケーションの画面を開く
@@ -784,6 +778,15 @@ def open_main_app(user_info):
                 conn.close()
         
     #debug
+        def get_user(self):
+            conn = self._connect()
+            try:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM users')
+                users = cursor.fetchall()
+            finally:
+                conn.close()
+            return users
         def get_task_info(self):
             conn = self._connect()
             try:
@@ -816,11 +819,16 @@ def open_main_app(user_info):
 
     def show_table_contents(schedule_manager):
         # テーブルの内容を取得
+        users = schedule_manager.get_user()
         task_info = schedule_manager.get_task_info()
         task_conditions = schedule_manager.get_task_conditions()
         event_mappings = schedule_manager.get_event_mappings()
 
         # 結果を表示
+        print("users テーブルの内容:")
+        for row in users:
+            print(row)
+            
         print("task_info テーブルの内容:")
         for row in task_info:
             print(row)
