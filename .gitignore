@@ -13,3 +13,4 @@ instance
 test.drawio
 users.db
 flask_session
+cookies.json

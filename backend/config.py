@@ -10,10 +10,7 @@ class Config:
     # Flask
     DEBUG = True
 
-    # SQLAlchemy
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///example.db'
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ECHO = False
+
     
 
     

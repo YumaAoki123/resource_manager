@@ -1,10 +1,9 @@
-from flask import Blueprint,Flask, request, jsonify, session, redirect, url_for, render_template, app
+from flask import Blueprint,Flask, request, jsonify, session, redirect, url_for, render_template
 from werkzeug.security import generate_password_hash, check_password_hash
 from email_service import create_form
 from calendar_service import calculate_free_times
-from auth import google
 from dotenv import load_dotenv
-from model.models import Base, User
+from model.models import Base, User, db_session
 import secrets
 import time
 from flask import redirect, request
@@ -17,37 +16,19 @@ import json
 from flask import Flask, request, jsonify, session
 import sqlite3
 import bcrypt
-from flask_session import Session
-from flask import Flask, request, jsonify, session
-
-from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 
 load_dotenv()
-
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
-client_id = os.environ.get('GOOGLE_CLIENT_ID')
-client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
-redirect_uri = 'http://localhost:5000/callback'
-authorization_base_url = 'https://accounts.google.com/o/oauth2/auth'
-token_url = 'https://accounts.google.com/o/oauth2/token'
-
 
 
 main = Blueprint('main', __name__)
 
 # ホームエンドポイント
-@main.route('/token_received?token={token["access_token"')
+@main.route('/')
 def home():
 
     return 'Welcome to the home page'
-
-
-
-
-
-
-
 
 
 # ユーザー登録
@@ -57,60 +38,66 @@ def register():
     username = data.get('username')
     password = data.get('password')
 
-    # パスワードをハッシュ化
-    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
-
-    new_user = User(username=username, password=hashed_password)
+    new_user = User(username=username, password=password)
 
     try:
         # データベースに新しいユーザーを追加
-        Base.session.add(new_user)
-        Base.session.commit()
+        db_session.add(new_user)
+        db_session.commit()
 
         # ユーザー登録が成功したらクッキーを設定してセッションを開始
         session['username'] = username  # クッキーに保存するデータ
         return jsonify({"message": "User registered successfully!"}), 201
     except IntegrityError:
-        Base.session.rollback()
+        db_session.rollback()
         return jsonify({"error": "Username already exists"}), 409
-    
 
-@main.route('/get-free-times', methods=['POST'])
-def get_free_times():
-    data = request.json
-    calendar_id = data.get('calendar_id', 'primary')
-    start_date = data.get('start_date')
-    end_date = data.get('end_date')
-
-    try:
-        free_times = calculate_free_times(start_date, end_date, calendar_id)
-        return jsonify(free_times)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    # ユーザー登録
-@main.route('/signup', methods=['GET', 'POST'])
-def signup():
-    if request.method == 'POST':
-        email = request.form['email']
-        password = generate_password_hash(request.form['password'], method='sha256')
-        new_user = User(email=email, password=password)
-        Base.session.add(new_user)
-        Base.session.commit()
-        return redirect(url_for('main.login'))
-    return render_template('signup.html')
-
-# ユーザーログイン
-@main.route('/login', methods=['GET', 'POST'])
+@main.route('/login', methods=['POST'])
 def login():
-    if request.method == 'POST':
-        email = request.form['email']
-        password = request.form['password']
-        user = User.query.filter_by(email=email).first()
-        if user and check_password_hash(user.password, password):
-            session['user'] = {'email': user.email}
-            return redirect(url_for('main.profile'))
-        return 'Invalid credentials'
-    return render_template('login.html')
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+
+    user = db_session.query(User).filter_by(username=username).first()
+
+    if user and check_password_hash(user.password, password):
+        session['username'] = username
+        response = jsonify({"message": "Logged in successfully"})
+        return response, 200
+    else:
+        return jsonify({"error": "Invalid credentials"}), 401
+
+@main.route('/check_session', methods=['GET'])
+def check_session():
+    if 'username' in session:
+        return jsonify({"message": "Logged in"}), 200
+    else:
+        return jsonify({"message": "Not logged in"}), 401
+    
+@main.route('/logout', methods=['POST'])
+def logout():
+    session.pop('username', None)  # セッションからユーザー情報を削除
+    response = jsonify({"message": "Logged out successfully"})
+    
+    # クッキーの削除
+    response.set_cookie('session_id', '', expires=0)
+    
+    return response
+
+
+# @main.route('/get-free-times', methods=['POST'])
+# def get_free_times():
+#     data = request.json
+#     calendar_id = data.get('calendar_id', 'primary')
+#     start_date = data.get('start_date')
+#     end_date = data.get('end_date')
+
+#     try:
+#         free_times = calculate_free_times(start_date, end_date, calendar_id)
+#         return jsonify(free_times)
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
+
 
 
 # @main.route('/submit-tasks', methods=['POST'])
