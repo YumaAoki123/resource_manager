@@ -92,28 +92,69 @@ conn.close()
 # アプリケーションの初期化
 ctk.set_appearance_mode("Dark")  # 外観モードの設定（"System", "Dark", "Light"）
 ctk.set_default_color_theme("blue")  # カラーテーマの設定
-
 # アプリケーションウィンドウの作成
 app = ctk.CTk()
 app.geometry("400x300")
-app.title("Login")
+app.title("title")
 
-# サインインウィンドウを開く
+def open_title(app):
+
+    # サインインボタンの作成
+    signin_button = ctk.CTkButton(app, text="Sign In", command=open_signin_window)
+    signin_button.grid(pady=20)
+
+    # サインアップボタンの作成
+    signup_button = ctk.CTkButton(app, text="Sign Up", command=open_signup_window)
+    signup_button.grid(pady=20)
+
+
 def open_signin_window():
-    signin_window = ctk.CTkToplevel()
-    signin_window.title("Sign In")
-    signin_window.geometry("300x200")
-
-    username_entry = ctk.CTkEntry(signin_window, placeholder_text="username")
-    username_entry.pack(pady=10)
-
-    password_entry = ctk.CTkEntry(signin_window, placeholder_text="Password", show="*")
-    password_entry.pack(pady=10)
-
-    # signin_button = ctk.CTkButton(signin_window, text="Sign In", command=lambda: submit_signin(username_entry.get(), password_entry.get(), signin_window))
-    # signin_button.pack(pady=10)
-
     
+    login_window = ctk.CTk()
+    login_window.geometry("300x200")
+    login_window.title("Login")
+    
+    username_label = ctk.CTkLabel(login_window, text="Username")
+    username_label.grid(pady=5)
+    username_entry = ctk.CTkEntry(login_window)
+    username_entry.grid(pady=5)
+    
+    password_label = ctk.CTkLabel(login_window, text="Password")
+    password_label.grid(pady=5)
+    password_entry = ctk.CTkEntry(login_window, show='*')
+    password_entry.grid(pady=5)
+    
+    remember_var = ctk.BooleanVar()
+    remember_check = ctk.CTkCheckBox(login_window, text="Remember me", variable=remember_var)
+    remember_check.grid(pady=5)
+    
+    login_button = ctk.CTkButton(login_window, text="Login", command=lambda: login_user(username_entry.get(), password_entry.get(),remember_var.get()))
+    login_button.grid(pady=20)
+    
+    login_window.mainloop()
+
+def login_user(username, password, remember_me):
+    login_url = 'http://127.0.0.1:5000/login'
+    login_data = {
+        'username': username,
+        'password': password
+    }
+    print(f'logindata:{login_data}')
+    try:
+        session = requests.Session()
+        response = session.post(login_url, json=login_data)
+        print(f'response: {response}')
+        if response.status_code == 200:
+            print("ログイン成功")
+            print("クッキー:", session.cookies.get_dict())  # クッキーを確認するための出力
+            if remember_me:
+                save_cookies(session.cookies.get_dict())
+            open_main_app()  # メインアプリケーションを開く    
+            
+        else:
+            print(f"ログインエラー: {response.status_code}")
+    except requests.RequestException as e:
+        print(f"リクエストエラー: {e}")
 
 # サインアップウィンドウを開く
 def open_signup_window():
@@ -122,59 +163,60 @@ def open_signup_window():
     signup_window.geometry("300x300")
 
     username_entry = ctk.CTkEntry(signup_window, placeholder_text="username")
-    username_entry.pack(pady=10)
+    username_entry.grid(pady=10)
 
     password_entry = ctk.CTkEntry(signup_window, placeholder_text="Password", show="*")
-    password_entry.pack(pady=10)
+    password_entry.grid(pady=10)
 
     signup_button = ctk.CTkButton(signup_window, text="Sign Up with Email", command=lambda: submit_signup(username_entry.get(), password_entry.get(), signup_window))
-    signup_button.pack(pady=10)
+    signup_button.grid(pady=10)
 
 
-
-# サインインボタンの作成
-signin_button = ctk.CTkButton(app, text="Sign In", command=open_signin_window)
-signin_button.pack(pady=20)
-
-# サインアップボタンの作成
-signup_button = ctk.CTkButton(app, text="Sign Up", command=open_signup_window)
-signup_button.pack(pady=20)
-
-# # サインイン処理
-# def submit_signin(username, password, window):
-#     user_info = login(username, password)
-#     print(f'userinfo{user_info}')
-#     if user_info:
-#         window.destroy()
-#         open_main_app(user_info)
+def start_app():
+    """アプリ起動時に自動ログイン処理を試行し、画面を切り替える"""
+    if auto_login():
+        print("自動ログイン成功、メインアプリ画面を表示します")
+        
+        open_main_app()  # 自動ログイン成功時のメイン画面表示
+        
+    else:
+        print('sessionの有効期限切れ、タイトル画面を表示します')
+        open_title(app)  # 自動ログイン失敗時のログイン画面表示
   
 
 # サインアップ処理
-def submit_signup(username, password, window):
+def submit_signup(username, password, signup_window):
     if username and password:
         register_user(username, password)
-        window.destroy()
-        open_main_app(username)
+        
+        open_main_app()
+        signup_window.destroy()
     else:
         messagebox.showerror("Error", "Please enter both username and password")
 
 
 def register_user(username, password):
-    # ログインリクエストを送信して、サーバーからクッキーを取得
-    login_url = 'http://localhost:5000/registar'
-    login_data = {
-            'username': username,
-            'password': password
-        }
+    # 正しいURLを指定
+    register_url = 'http://127.0.0.1:5000/register'
+    register_data = {
+        'username': username,
+        'password': password
+    }
+    
     try:
         # セッションを使用してサーバーと通信
         session = requests.Session()
-        response = session.post(login_url, json=login_data)
+        response = session.post(register_url, json=register_data)
+        print(f'response: {response}')
 
         # レスポンスが成功した場合
         if response.status_code == 201:
-           
+            print("ユーザー登録成功")
             print("クッキー:", session.cookies.get_dict())  # クッキーを確認するための出力
+            
+            # クッキーをファイルに保存
+            save_cookies(session.cookies.get_dict())  # クッキーを保存
+           
         elif response.status_code == 409:
             print("エラー: ユーザー名が既に存在します")
         else:
@@ -182,15 +224,39 @@ def register_user(username, password):
     except requests.RequestException as e:
         print(f"リクエストエラー: {e}")
 
-    
+def save_cookies(cookies):
+    with open('cookies.json', 'w') as file:
+        json.dump(cookies, file)
 
+def load_cookies():
+    if os.path.exists('cookies.json'):
+        with open('cookies.json', 'r') as file:
+            return json.load(file)
+    return None
+
+def auto_login():
+    cookies = load_cookies()
+    if cookies:
+        session = requests.Session()
+        session.cookies.update(cookies)
+        response = session.get('http://127.0.0.1:5000/check_session')  # サーバーにセッション確認リクエスト
+        if response.status_code == 200:
+            print("自動ログイン成功")
+            return True
+        else:
+            print("自動ログイン失敗。再ログインが必要です。")
+            return False
+    else:
+        print("クッキーが見つかりません。再ログインが必要です。")
+        return False
+
+def clear_window():
+        """ウィンドウをクリアする"""
+        for widget in app.winfo_children():
+            widget.destroy()  # 現在のウィジェットをすべて削除
 
 # メインアプリケーションの画面を開く
-def open_main_app(user_info):
-    print("Main app opening with user:", user_info)
-    # 現在のフレームを非表示にする
-    for widget in app.winfo_children():
-        widget.pack_forget()
+def open_main_app():
 
     # 認証に必要なスコープ
     SCOPES = [
@@ -1648,7 +1714,9 @@ def open_main_app(user_info):
         conn.close()
 
         return task_times
-    
+
+
+   # 既存の app ウィンドウを使って main_app 内容を表示する
     app.title("resource_manager")
     app.geometry("900x600")
 
@@ -1827,9 +1895,38 @@ def open_main_app(user_info):
     progress_label = ctk.CTkLabel(task_list_frame, text="0%")
     progress_label.grid(row=2, column=0, padx=10, pady=10)
 
+    def logout_user():
+        logout_url = 'http://127.0.0.1:5000/logout'
+        
+        try:
+            # セッションを使用してサーバーと通信
+            session = requests.Session()
+            response = session.post(logout_url)
+            
+            print(f'response: {response}')
+            
+            # ログアウトが成功した場合
+            if response.status_code == 200:
+                print("ログアウト成功")
+                # クッキーの削除
+                if os.path.exists('cookies.json'):
+                    os.remove('cookies.json')
+                    print("クッキーファイルを削除しました")
+               
+                clear_window()
+                open_title(app)
+            else:
+                print(f"エラー: {response.status_code}")
+        except requests.RequestException as e:
+            print(f"リクエストエラー: {e}")
+
     # ユーザ情報管理タブ
     user_information_frame = ctk.CTkFrame(notebook)
     notebook.add(user_information_frame, text="ユーザ情報")
+
+    logout_button = ctk.CTkButton(user_information_frame, text="ログアウト", command=logout_user)
+    logout_button.grid(row=1, column=0, padx=10, pady=5, sticky="w")
+    
 
 
 
@@ -1851,5 +1948,7 @@ def open_main_app(user_info):
         # .envファイルの読み込み
     load_dotenv()
 
+# アプリ起動時に自動ログイン処理を実行
+start_app()
 # メインループの開始
 app.mainloop()

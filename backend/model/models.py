@@ -22,6 +22,4 @@ Base.metadata.create_all(engine)
 
 # セッションを作成
 Session = sessionmaker(bind=engine)
-session = Session()
-
-# 初期化関数は不要になります
+db_session = Session()
