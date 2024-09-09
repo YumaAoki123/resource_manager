@@ -128,33 +128,60 @@ def open_signin_window():
     remember_check = ctk.CTkCheckBox(login_window, text="Remember me", variable=remember_var)
     remember_check.grid(pady=5)
     
-    login_button = ctk.CTkButton(login_window, text="Login", command=lambda: login_user(username_entry.get(), password_entry.get(),remember_var.get()))
+    login_button = ctk.CTkButton(login_window, text="Login", command=lambda: login_user(username_entry.get(), password_entry.get(),remember_var.get(), login_window, username_entry, password_entry))
     login_button.grid(pady=20)
     
     login_window.mainloop()
 
-def login_user(username, password, remember_me):
-    login_url = 'http://127.0.0.1:5000/login'
-    login_data = {
-        'username': username,
-        'password': password
-    }
-    print(f'logindata:{login_data}')
-    try:
-        session = requests.Session()
-        response = session.post(login_url, json=login_data)
-        print(f'response: {response}')
-        if response.status_code == 200:
-            print("ログイン成功")
-            print("クッキー:", session.cookies.get_dict())  # クッキーを確認するための出力
-            if remember_me:
-                save_cookies(session.cookies.get_dict())
-            open_main_app()  # メインアプリケーションを開く    
-            
-        else:
-            print(f"ログインエラー: {response.status_code}")
-    except requests.RequestException as e:
-        print(f"リクエストエラー: {e}")
+# バリデーション関数の作成
+def validate_login_input(username, password, username_entry, password_entry):
+    # 初期化: フィールドの背景色をクリア
+    username_entry.configure(border_color='')
+    password_entry.configure(border_color='')
+
+    # 未入力チェック
+    if not username:
+        username_entry.configure(border_color="red")
+        print("ユーザー名が入力されていません")
+        return False  # バリデーション失敗
+
+    if not password:
+        password_entry.configure(border_color="red")
+        print("パスワードが入力されていません")
+        return False  # バリデーション失敗
+
+    return True  # バリデーション成功
+
+# ログイン処理
+def login_user(username, password, remember_me, login_window, username_entry, password_entry):
+    # 入力のバリデーションを実行し、成功した場合にのみログイン処理を行う
+    if validate_login_input(username, password, username_entry, password_entry):
+        login_url = 'http://127.0.0.1:5000/login'
+        login_data = {
+            'username': username,
+            'password': password
+        }
+        print(f'logindata: {login_data}')
+        try:
+            session = requests.Session()
+            response = session.post(login_url, json=login_data)
+
+            if response.status_code == 200:
+                print("ログイン成功")
+                if remember_me:
+                    save_cookies(session.cookies.get_dict()) 
+                open_main_app()  # メインアプリケーションを開く    
+                login_window.destroy()    
+
+            elif response.status_code in [401, 404]:
+                # ユーザー名またはパスワードが間違っている場合
+                messagebox.showerror("Error", "ユーザー名またはパスワードが違います")
+
+            else:
+                messagebox.showerror("Error", f"ログインエラー: {response.status_code}")
+
+        except requests.RequestException as e:
+            messagebox.showerror("Error", f"リクエストエラー: {e}")
 
 # サインアップウィンドウを開く
 def open_signup_window():
@@ -168,7 +195,7 @@ def open_signup_window():
     password_entry = ctk.CTkEntry(signup_window, placeholder_text="Password", show="*")
     password_entry.grid(pady=10)
 
-    signup_button = ctk.CTkButton(signup_window, text="Sign Up with Email", command=lambda: submit_signup(username_entry.get(), password_entry.get(), signup_window))
+    signup_button = ctk.CTkButton(signup_window, text="Sign Up with Email", command=lambda: register_user(username_entry.get(), password_entry.get(), signup_window, username_entry, password_entry))
     signup_button.grid(pady=10)
 
 
@@ -184,45 +211,42 @@ def start_app():
         open_title(app)  # 自動ログイン失敗時のログイン画面表示
   
 
-# サインアップ処理
-def submit_signup(username, password, signup_window):
-    if username and password:
-        register_user(username, password)
+
+
+
+def register_user(username, password, signup_window, username_entry, password_entry):
+    if validate_login_input(username, password, username_entry, password_entry):
+        # 正しいURLを指定
+        register_url = 'http://127.0.0.1:5000/register'
+        register_data = {
+            'username': username,
+            'password': password
+        }
         
-        open_main_app()
-        signup_window.destroy()
-    else:
-        messagebox.showerror("Error", "Please enter both username and password")
+        try:
+            # セッションを使用してサーバーと通信
+            session = requests.Session()
+            response = session.post(register_url, json=register_data)
+            print(f'response: {response}')
 
-
-def register_user(username, password):
-    # 正しいURLを指定
-    register_url = 'http://127.0.0.1:5000/register'
-    register_data = {
-        'username': username,
-        'password': password
-    }
-    
-    try:
-        # セッションを使用してサーバーと通信
-        session = requests.Session()
-        response = session.post(register_url, json=register_data)
-        print(f'response: {response}')
-
-        # レスポンスが成功した場合
-        if response.status_code == 201:
-            print("ユーザー登録成功")
-            print("クッキー:", session.cookies.get_dict())  # クッキーを確認するための出力
-            
-            # クッキーをファイルに保存
-            save_cookies(session.cookies.get_dict())  # クッキーを保存
-           
-        elif response.status_code == 409:
-            print("エラー: ユーザー名が既に存在します")
-        else:
-            print(f"エラー: {response.status_code}")
-    except requests.RequestException as e:
-        print(f"リクエストエラー: {e}")
+            # レスポンスが成功した場合
+            if response.status_code == 201:
+                print("ユーザー登録成功")
+                print("クッキー:", session.cookies.get_dict())  # クッキーを確認するための出力
+                
+                # クッキーをファイルに保存
+                save_cookies(session.cookies.get_dict())  # クッキーを保存
+                open_main_app()
+                signup_window.destroy()
+            elif response.status_code == 409:
+                print("エラー: ユーザー名が既に存在します")
+                messagebox.showerror("Error", "別のユーザー名を使用してください。")
+            else:
+                print(f"エラー: {response.status_code}")
+                messagebox.showerror("Error", f"登録エラー: {response.status_code}")
+        except requests.RequestException as e:
+            print(f"リクエストエラー: {e}")
+            messagebox.showerror("Error", f"リクエストエラー: {e}")
 
 def save_cookies(cookies):
     with open('cookies.json', 'w') as file:
@@ -1895,16 +1919,24 @@ def open_main_app():
     progress_label = ctk.CTkLabel(task_list_frame, text="0%")
     progress_label.grid(row=2, column=0, padx=10, pady=10)
 
-    def logout_user():
+    def logout_user(cookies):
         logout_url = 'http://127.0.0.1:5000/logout'
-        
+
+        if not cookies:
+            print("クッキーが存在しないため、ログアウト処理は行いません。")
+            clear_window()
+            open_title(app)
+            return
+
         try:
             # セッションを使用してサーバーと通信
             session = requests.Session()
+            session.cookies.update(cookies)  # ログイン時に取得したクッキーを設定
+
             response = session.post(logout_url)
-            
+
             print(f'response: {response}')
-            
+
             # ログアウトが成功した場合
             if response.status_code == 200:
                 print("ログアウト成功")
@@ -1912,7 +1944,7 @@ def open_main_app():
                 if os.path.exists('cookies.json'):
                     os.remove('cookies.json')
                     print("クッキーファイルを削除しました")
-               
+                
                 clear_window()
                 open_title(app)
             else:
@@ -1924,7 +1956,9 @@ def open_main_app():
     user_information_frame = ctk.CTkFrame(notebook)
     notebook.add(user_information_frame, text="ユーザ情報")
 
-    logout_button = ctk.CTkButton(user_information_frame, text="ログアウト", command=logout_user)
+    cokkies = load_cookies()
+    
+    logout_button = ctk.CTkButton(user_information_frame, text="ログアウト", command=lambda:logout_user(cokkies))
     logout_button.grid(row=1, column=0, padx=10, pady=5, sticky="w")
     
 
