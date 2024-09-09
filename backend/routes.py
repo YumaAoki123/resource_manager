@@ -37,8 +37,10 @@ def register():
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
+    # パスワードをハッシュ化
+    hashed_password = generate_password_hash(password)
 
-    new_user = User(username=username, password=password)
+    new_user = User(username=username, password=hashed_password)
 
     try:
         # データベースに新しいユーザーを追加
@@ -57,8 +59,17 @@ def login():
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
-
+     # デバッグログを追加して、入力されたユーザー名を確認
+    print(f"Received username: {username}")
     user = db_session.query(User).filter_by(username=username).first()
+
+    if user is None:
+        # デバッグ用のメッセージを表示
+        print("ユーザーがデータベースに存在しません")
+        return jsonify({"error": "User not found"}), 404
+
+    # デバッグログを追加して、ユーザーのパスワードハッシュを確認
+    print(f"User found in DB: {user.username}, Password hash: {user.password}")
 
     if user and check_password_hash(user.password, password):
         session['username'] = username
@@ -76,11 +87,22 @@ def check_session():
     
 @main.route('/logout', methods=['POST'])
 def logout():
-    session.pop('username', None)  # セッションからユーザー情報を削除
+    # セッションからユーザーが存在しているか確認
+    if 'username' in session:
+        print(f"Logging out user: {session['username']}")  # ログアウト時のユーザー名を確認
+        session.pop('username', None)  # セッションからユーザー情報を削除
+    else:
+        print("セッションにユーザーが存在しません")
+        
     response = jsonify({"message": "Logged out successfully"})
-    
-    # クッキーの削除
-    response.set_cookie('session_id', '', expires=0)
+     
+    # クッキーがセットされているかを確認してクッキーの削除
+    if request.cookies.get('session'):
+        print(f"クッキーを削除: {request.cookies.get('session')}")
+        response.set_cookie('session', '', expires=0)  # クッキーの削除
+    else:
+        print("クッキーが存在しません")
+
     
     return response
 
