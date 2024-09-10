@@ -279,6 +279,9 @@ def clear_window():
         for widget in app.winfo_children():
             widget.destroy()  # 現在のウィジェットをすべて削除
 
+
+
+
 # メインアプリケーションの画面を開く
 def open_main_app():
 
@@ -698,30 +701,27 @@ def open_main_app():
 
 
 
-    # タスクを追加する関数
     def add_task():
-            task_name = task_entry.get()
-            
-            # タスクに固有のIDを生成
-            task_uuid = str(uuid.uuid4())
+        task_name = task_entry.get()
+        
+        if not task_name:
+            print("タスク名を入力してください")
+            return
 
-            save_task_info(task_uuid, task_name)  # Save the updated task list to a file or database
-            update_todo_listbox(todo_listbox, schedule_manager)  # Update task listbox to reflect the new task
-            task_entry.delete(0, ctk.END)  # Clear the task entry field
+        # サーバーへのリクエスト
+        try:
+            response = requests.post('http://127.0.0.1:5000/add_task', json={
+                'task_name': task_name
+            })
+            if response.status_code == 201:
+                print("タスクが追加されました")
+                update_todo_listbox(todo_listbox)  # タスクリストの更新
+                task_entry.delete(0, ctk.END)  # 入力フィールドをクリア
+            else:
+                print(f"エラー: {response.json().get('error')}")
+        except requests.RequestException as e:
+            print(f"リクエストエラー: {e}")
 
-    def save_task_info(task_uuid, task_name):
-            # SQLiteデータベースに接続
-            conn = sqlite3.connect('resource_manager.db')
-            cursor = conn.cursor()
-
-            # UUIDとイベントIDのマッピングをデータベースに挿入
-            cursor.execute('''
-            INSERT INTO task_info (task_uuid, task_name) VALUES (?, ?)
-            ''', (task_uuid, task_name))
-
-            # 変更を保存して接続を閉じます
-            conn.commit()
-            conn.close()
 
     class ScheduleManager:
         def __init__(self, db_path='resource_manager.db'):
@@ -768,20 +768,6 @@ def open_main_app():
             finally:
                 conn.close()
 
-        def get_tasks_without_conditions(self):
-            conn = self._connect()
-            try:
-                cursor = conn.cursor()
-                cursor.execute('''
-                SELECT task_info.task_uuid, task_info.task_name
-                FROM task_info
-                LEFT JOIN task_conditions ON task_info.task_uuid = task_conditions.task_uuid
-                WHERE task_conditions.task_uuid IS NULL
-            ''')
-                tasks = cursor.fetchall()
-            finally:
-                conn.close()
-            return tasks
 
         def get_schedules(self):
             conn = self._connect()
@@ -815,57 +801,7 @@ def open_main_app():
                 conn.close()
             
             return event_ids
-        
-        def delete_task_by_uuid(self, task_uuid):
-            conn = self._connect()
-            try:
-                cursor = conn.cursor()
-                
-                # トランザクションを開始
-                conn.execute('BEGIN')
-                
-                # event_mappings テーブルから task_uuid に関連するイベント ID を削除
-                cursor.execute('''
-                    DELETE FROM event_mappings
-                    WHERE task_uuid = ?
-                ''', (task_uuid,))
-                
-                # task_conditions テーブルから task_uuid に関連する条件を削除
-                cursor.execute('''
-                    DELETE FROM task_conditions
-                    WHERE task_uuid = ?
-                ''', (task_uuid,))
-                
-                # task_info テーブルから task_uuid に関連するタスク情報を削除
-                cursor.execute('''
-                    DELETE FROM task_info
-                    WHERE task_uuid = ?
-                ''', (task_uuid,))
-                
-                # コミットして変更を保存
-                conn.commit()
-            
-            except Exception as e:
-                # エラーが発生した場合はロールバック
-                conn.rollback()
-                print(f"タスク削除中にエラーが発生しました: {e}")
-            
-            finally:
-                conn.close()
 
-        def delete_todo_task_by_uuid(self, task_uuid):
-            conn = self._connect()
-            try:
-                cursor = conn.cursor()
-                # task_infoからタスクを削除
-                cursor.execute('DELETE FROM task_info WHERE task_uuid = ?', (task_uuid,))
-                
-                # 念のため、task_conditionsや他の関連テーブルにも削除処理を追加することができます
-                # 例えば: cursor.execute('DELETE FROM task_conditions WHERE task_uuid = ?', (task_uuid,))
-                
-                conn.commit()
-            finally:
-                conn.close()
         
     #debug
         def get_user(self):
@@ -933,13 +869,55 @@ def open_main_app():
 
 
 
-
-
-    def update_todo_listbox(todo_listbox, schedule_manager):
+    def update_todo_listbox(todo_listbox):
         todo_listbox.delete(0, ctk.END)
-        tasks = schedule_manager.get_tasks_without_conditions()
-        for task in tasks:
-            todo_listbox.insert(ctk.END, task[1])
+        
+        try:
+            # サーバーから条件のないタスクを取得
+            response = requests.get('http://127.0.0.1:5000/get_tasks_without_conditions')
+            if response.status_code == 200:
+                tasks = response.json()
+                for task in tasks:
+                    todo_listbox.insert(ctk.END, task['task_name'])
+            else:
+                print(f"エラー: {response.json().get('error')}")
+        except requests.RequestException as e:
+            print(f"リクエストエラー: {e}")
+
+
+    def delete_todo_task(todo_listbox):
+        selected_task_index = todo_listbox.curselection()
+        
+        if selected_task_index:
+            try:
+                # サーバーから条件のないタスクを取得
+                response = requests.get('http://127.0.0.1:5000/get_tasks_without_conditions')
+                if response.status_code == 200:
+                    tasks = response.json()
+                    
+                    # 選択されたタスクのインデックスを元に、tasksからタスクを取得
+                    index = selected_task_index[0]
+                    selected_task = tasks[index]
+                    task_uuid = selected_task['task_uuid']  # 正しいキーでtask_uuidを取得
+                    
+                    # APIエンドポイントに対してDELETEリクエストを送信
+                    delete_response = requests.delete('http://127.0.0.1:5000/delete_todo_task',
+                                                    json={"task_uuid": task_uuid})
+
+                    if delete_response.status_code == 200:
+                        print("Task deleted successfully!")
+                        # リストボックスを更新
+                        update_todo_listbox(todo_listbox)
+                    else:
+                        print(f"Failed to delete task: {delete_response.json().get('error')}")
+                else:
+                    print(f"エラー: {response.json().get('error')}")
+            except requests.RequestException as e:
+                print(f"リクエストエラー: {e}")
+        else:
+            print("削除するタスクを選択してください。")
+
+
 
     def update_schedule_listbox(schedule_listbox, schedule_manager):
         schedule_listbox.delete(0, ctk.END)
@@ -947,25 +925,6 @@ def open_main_app():
         for schedule in schedules:
             print(f"Current task: {schedule[0]}")  # デバッグ用の出力
             schedule_listbox.insert(ctk.END, schedule[0])
-
-    def delete_todo_task(schedule_manager, todo_listbox):
-        # 選択されたタスクのインデックスを取得
-        selected_task_index = todo_listbox.curselection()
-        
-        if selected_task_index:
-            # 選択されたインデックスからタスク情報を取得
-            index = selected_task_index[0]
-            tasks = schedule_manager.get_tasks_without_conditions()
-            selected_task = tasks[index]
-
-            # タスクUUIDを取得し、削除
-            task_uuid = selected_task[0]
-            schedule_manager.delete_todo_task_by_uuid(task_uuid)
-
-            # リストボックスを更新
-            update_todo_listbox(todo_listbox, schedule_manager)
-        else:
-            print("削除するタスクを選択してください。")
 
     def delete_selected_task(schedule_manager, service):
         selected_task_index = schedule_listbox.curselection()
@@ -1091,40 +1050,49 @@ def open_main_app():
 
 
 
-    # イベント作成ウィンドウを作成する関数
-    def create_event_window(schedule_manager):
+    def create_event_window(todo_listbox):
         # 選択されたタスクのインデックスを取得
         selected_index = todo_listbox.curselection()
         
         if selected_index:
             index = selected_index[0]
             
-            # `get_tasks_without_conditions` を使って、表示されているタスク情報を取得する
-            tasks = schedule_manager.get_tasks_without_conditions()
-            
-            if 0 <= index < len(tasks):
-                task_uuid, task_name = tasks[index]
+            # サーバーから条件のないタスクを取得
+            try:
+                response = requests.get('http://127.0.0.1:5000/get_tasks_without_conditions')
+                if response.status_code == 200:
+                    tasks = response.json()  # タスクのリストを取得
+                    
+                    if 0 <= index < len(tasks):
+                        selected_task = tasks[index]
+                        task_uuid = selected_task['task_uuid']  # タスクUUID
+                        task_name = selected_task['task_name']  # タスク名
 
-                # 選択されたタスクの名前とUUIDをスケジュールマネージャに保存
-                schedule_manager.selected_task_uuid = task_uuid
-                schedule_manager.selected_task_name = task_name
+                        # 選択されたタスクの名前とUUIDをスケジュールマネージャに保存
+                        schedule_manager.selected_task_uuid = task_uuid
+                        schedule_manager.selected_task_name = task_name
 
-                # 新しいウィンドウを作成
-                event_window = ctk.CTk()
-                event_window.title("イベント作成")
-                event_window.geometry("800x500")
-                
-                # タスク詳細をイベント情報として表示
-                event_details_text = f"イベント名: {task_name}\n"  # `task[1]` はタスク名
-                event_window_label = ctk.CTkLabel(event_window, text=event_details_text)
-                event_window_label.grid(pady=10)
-                
-                # 他のウィジェットの作成やイベントの追加処理をここに記述
-                
-            else:
-                print("タスクのインデックスが不正です")
+                        # イベント作成用の新しいウィンドウを作成
+                        event_window = ctk.CTk()
+                        event_window.title("イベント作成")
+                        event_window.geometry("800x500")
+                        
+                        # タスク詳細をイベント情報として表示
+                        event_details_text = f"イベント名: {task_name}\n"
+                        event_window_label = ctk.CTkLabel(event_window, text=event_details_text)
+                        event_window_label.grid(pady=10)
+                        
+                        # 他のウィジェットの作成やイベントの追加処理をここに記述
+                        
+                    else:
+                        print("タスクのインデックスが不正です")
+                else:
+                    print(f"サーバーエラー: {response.json().get('error')}")
+            except requests.RequestException as e:
+                print(f"リクエストエラー: {e}")
         else:
             print("タスクを選択してください")
+
 
         def get_selected_min_duration():
         # Entryの値を取得し、整数に変換
@@ -1278,23 +1246,24 @@ def open_main_app():
         # free_times_label = ctk.CTkLabel(event_window, text=free_times_text, justify="left")
         # free_times_label.grid(pady=20, padx=20)
 
-        def fetch_free_times():
-            start_date, end_date = get_date_range()
-            url = 'http://localhost:5000/get-free-times'  # サーバーのエンドポイント
+        def get_free_times_from_backend(start_date, end_date):
+            url = 'http://127.0.0.1:5000/get_free_times'
             data = {
-                "calendar_id": "primary",  # 必要に応じて変更
                 "start_date": start_date,
-                "end_date": end_date
+                "end_date": end_date,
+                "calendar_id": "primary"  # 必要に応じてカレンダーIDを変更
             }
-
-            response = requests.post(url, json=data)
-            if response.status_code == 200:
-                free_times = response.json()
-                for free_start, free_end in free_times:
-                    print(f"空いている時間帯: start_time: {free_start} から end_time: {free_end}")
-                return free_times
-            else:
-                print("Failed to fetch free times")
+            
+            try:
+                response = requests.post(url, json=data)
+                if response.status_code == 200:
+                    free_times = response.json()
+                    for time_slot in free_times:
+                        print(f"空いている時間帯: {time_slot['start_time']} から {time_slot['end_time']}")
+                else:
+                    print(f"エラー: {response.json().get('error')}")
+            except requests.RequestException as e:
+                print(f"リクエストエラー: {e}")
 
         # #GoogleCalendarの既存の予定情報を取得し、それ以外の空いている時間帯情報を作成。
         # def get_free_times(calendar_id="primary"):
@@ -1486,7 +1455,7 @@ def open_main_app():
         def on_check_button_click():
             start_date, end_date = get_date_range()
             # 空き時間を取得
-            free_times = fetch_free_times()
+            free_times = get_free_times_from_backend(start_date,end_date)
             # ボタンがクリックされたときに呼ばれる関数
             task_duration_minutes = get_task_duration()
             selected_ranges = get_selected_time_ranges()
@@ -1674,7 +1643,7 @@ def open_main_app():
         add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加", command=on_insert_button_click)
         add_event_button.grid(row=12, column=0, pady=20)
 
-        test_button = ctk.CTkButton(event_window, text="test", command=fetch_free_times)
+        test_button = ctk.CTkButton(event_window, text="test", command=get_free_times_from_backend)
         test_button.grid(row=12, column=1, pady=20)
     
     
@@ -1774,11 +1743,11 @@ def open_main_app():
     todo_listbox = tk.Listbox(task_management_frame, selectmode=tk.MULTIPLE, width=50, height=10)  
     todo_listbox.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
 
-    delete_todo_button = ctk.CTkButton(task_management_frame, text="タスク削除", command=lambda: delete_todo_task(schedule_manager, todo_listbox))
+    delete_todo_button = ctk.CTkButton(task_management_frame, text="タスク削除", command=lambda: delete_todo_task(todo_listbox))
     delete_todo_button.grid(row=3, padx=20, pady=10)
 
     def on_create_event_button_click():
-        create_event_window(schedule_manager)  # schedule_manager を渡す
+        create_event_window(todo_listbox)  # schedule_manager を渡す
     # イベント作成ウィンドウを開くボタン
     create_event_button = ctk.CTkButton(task_management_frame, text="カレンダーに埋め込む", command=on_create_event_button_click)
     create_event_button.grid(row=4, padx=20, pady=10)
@@ -1971,10 +1940,9 @@ def open_main_app():
     # ScheduleManager のインスタンスを作成
     schedule_manager = ScheduleManager()
 
-    # タスクデータをロードして表示
-    schedule_manager.load_tasks()
+
     # update_task_listbox に schedule_manager を渡して呼び出す
-    update_todo_listbox(todo_listbox, schedule_manager)
+    update_todo_listbox(todo_listbox)
 
     schedule_manager.load_schedules()
     update_schedule_listbox(schedule_listbox, schedule_manager)

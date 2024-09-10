@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from email_service import create_form
 from calendar_service import calculate_free_times
 from dotenv import load_dotenv
-from model.models import Base, User, db_session
+from model.models import Base, User, db_session, TaskInfo, TaskConditions, EventMappings
 import secrets
 import time
 from flask import redirect, request
@@ -12,15 +12,40 @@ import requests
 import webbrowser
 from requests_oauthlib import OAuth2Session
 from flask_session import Session
-import json
-from flask import Flask, request, jsonify, session
-import sqlite3
-import bcrypt
+
+
+
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
+import uuid
+from datetime import datetime
+import pytz
+# calendar_service.py
+from googleapiclient.discovery import build
+import pytz
+from datetime import datetime
+import os
+import os.path
+import sys
+import pickle
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from authlib.integrations.requests_client import OAuth2Session
 
-load_dotenv()
+# クライアントIDとクライアントシークレットを環境変数から取得する
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # HTTPSを強制しないようにする（ローカル開発用）
+client_id = os.environ['GOOGLE_CLIENT_ID']
+client_secret = os.environ['GOOGLE_CLIENT_SECRET']
+redirect_uri = "http://127.0.0.1:5000/callback"
 
+# 認可のためのスコープ
+scope = ["https://www.googleapis.com/auth/calendar.readonly"]
+
+# Google OAuth 2.0エンドポイント
+authorization_base_url = "https://accounts.google.com/o/oauth2/auth"
+token_url = "https://oauth2.googleapis.com/token"
 
 main = Blueprint('main', __name__)
 
@@ -106,22 +131,121 @@ def logout():
     
     return response
 
+@main.route('/add_task', methods=['POST'])
+def add_task():
+    data = request.json
+    task_name = data.get('task_name')
 
-# @main.route('/get-free-times', methods=['POST'])
-# def get_free_times():
-#     data = request.json
-#     calendar_id = data.get('calendar_id', 'primary')
-#     start_date = data.get('start_date')
-#     end_date = data.get('end_date')
+    if not task_name:
+        return jsonify({"error": "Task name is required"}), 400
 
-#     try:
-#         free_times = calculate_free_times(start_date, end_date, calendar_id)
-#         return jsonify(free_times)
-#     except Exception as e:
-#         return jsonify({'error': str(e)}), 500
+    task_uuid = str(uuid.uuid4())
 
+    try:
+        new_task = TaskInfo(task_uuid=task_uuid, task_name=task_name)
+        db_session.add(new_task)
+        db_session.commit()
+        return jsonify({"message": "Task added successfully", "task_uuid": task_uuid}), 201
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db_session.close()
 
+@main.route('/get_tasks_without_conditions', methods=['GET'])
+def get_tasks_without_conditions():
+   
+    try:
+        # LEFT JOIN を使用して条件がないタスクを取得
+        tasks = db_session.query(TaskInfo).outerjoin(TaskConditions, TaskInfo.task_uuid == TaskConditions.task_uuid) \
+            .filter(TaskConditions.task_uuid == None).all()
 
+        # 必要なデータをリストに整形
+        task_list = [{'task_uuid': task.task_uuid, 'task_name': task.task_name} for task in tasks]
+        
+        return jsonify(task_list), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db_session.close()
+
+@main.route('/delete_todo_task', methods=['DELETE'])
+def delete_todo_task():
+    data = request.get_json()
+    task_uuid = data.get('task_uuid')
+
+    if not task_uuid:
+        return jsonify({"error": "task_uuid is required"}), 400
+
+    try:
+        # task_infoからタスクを削除
+        task = db_session.query(TaskInfo).filter_by(task_uuid=task_uuid).first()
+
+        if not task:
+            return jsonify({"error": "Task not found"}), 404
+
+        # 関連するtask_conditionsやevent_mappingsも削除する場合
+        db_session.query(TaskConditions).filter_by(task_uuid=task_uuid).delete()
+        db_session.query(EventMappings).filter_by(task_uuid=task_uuid).delete()
+
+        # task_info自体を削除
+        db_session.delete(task)
+        db_session.commit()
+
+        return jsonify({"message": "Task deleted successfully!"}), 200
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db_session.close()
+
+# 認可フローの開始
+@main.route("/authorize")
+def authorize():
+    google = OAuth2Session(client_id, scope=scope, redirect_uri=redirect_uri)
+    authorization_url, state = google.authorization_url(authorization_base_url, access_type="offline")
+    
+    # stateをセッションに保存
+    session['oauth_state'] = state
+    return redirect(authorization_url)
+
+# 認可コードを受け取るコールバック
+@main.route("/callback")
+def callback():
+    google = OAuth2Session(client_id, state=session['oauth_state'], redirect_uri=redirect_uri)
+    token = google.fetch_token(token_url, client_secret=client_secret, authorization_response=request.url)
+    
+    # トークン情報をセッションに保存
+    session['oauth_token'] = token
+    return redirect(url_for("get_free_times"))
+
+# Google Calendar APIにリクエストを送信して空き時間を取得
+@main.route("/get_free_times")
+def get_free_times():
+    if 'oauth_token' not in session:
+        return redirect(url_for('authorize'))
+
+    # 保存されたトークンを使用
+    google = OAuth2Session(client_id, token=session['oauth_token'])
+    
+    # Freebusy APIのエンドポイントにリクエスト
+    calendar_id = "primary"
+    time_min = "2024-09-15T00:00:00Z"  # UTC時間で指定
+    time_max = "2024-09-16T00:00:00Z"
+    
+    freebusy_query = {
+        "timeMin": time_min,
+        "timeMax": time_max,
+        "items": [{"id": calendar_id}]
+    }
+    
+    response = google.post('https://www.googleapis.com/calendar/v3/freeBusy', json=freebusy_query)
+    
+    if response.status_code == 200:
+        busy_times = response.json()['calendars'][calendar_id]['busy']
+        return json.dumps(busy_times, indent=2)
+    else:
+        return f"Error: {response.status_code}, {response.text}"
 # @main.route('/submit-tasks', methods=['POST'])
 # def submit_tasks():
 #     data = request.get_json()
