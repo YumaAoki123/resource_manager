@@ -1245,25 +1245,49 @@ def open_main_app():
         # )
         # free_times_label = ctk.CTkLabel(event_window, text=free_times_text, justify="left")
         # free_times_label.grid(pady=20, padx=20)
+        # 認証を開始する関数
+        def start_authorization():
+            auth_url = 'http://127.0.0.1:5000/auth'  # 認証エンドポイント
+            
+
+            # セッションの作成
+            session = requests.Session()
+
+            # 認証リクエストの送信
+            response = session.get(auth_url)
+
+            if response.status_code == 200:
+                authorization_url = response.json().get('authorization_url')
+                print(f'authorization_url:{authorization_url}')
+                # 認証用URLをブラウザで開く
+                webbrowser.open(authorization_url)
+              
+            else:
+                print(f"認証失敗: {response.status_code} {response.text}")
+
 
         def get_free_times_from_backend(start_date, end_date):
+            
+            
             url = 'http://127.0.0.1:5000/get_free_times'
             data = {
                 "start_date": start_date,
                 "end_date": end_date,
                 "calendar_id": "primary"  # 必要に応じてカレンダーIDを変更
             }
-            
+
             try:
                 response = requests.post(url, json=data)
                 if response.status_code == 200:
-                    free_times = response.json()
-                    for time_slot in free_times:
-                        print(f"空いている時間帯: {time_slot['start_time']} から {time_slot['end_time']}")
+                    free_times = response.json().get('free_times')
+                    print(f'free_times:{free_times}')
+                    return free_times
                 else:
-                    print(f"エラー: {response.json().get('error')}")
+                    print(f"Error: {response.json().get('error')}")
+                    return None
             except requests.RequestException as e:
-                print(f"リクエストエラー: {e}")
+                print(f"Request error: {e}")
+                return None
 
         # #GoogleCalendarの既存の予定情報を取得し、それ以外の空いている時間帯情報を作成。
         # def get_free_times(calendar_id="primary"):
@@ -1498,7 +1522,7 @@ def open_main_app():
         difference_label.grid(row=11, column=0, padx=20, pady=5)
 
         # 選択した時間範囲を取得するボタン
-        select_button = ctk.CTkButton(event_window, text="空き時間検索", command=on_check_button_click)
+        select_button = ctk.CTkButton(event_window, text="空き時間検索", command=start_authorization)
         select_button.grid(row=10, column=0, pady=20)
 
 
