@@ -12,7 +12,7 @@ import requests
 import webbrowser
 from requests_oauthlib import OAuth2Session
 from flask_session import Session
-
+import json
 
 
 from sqlalchemy.orm import sessionmaker
@@ -32,8 +32,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from authlib.integrations.requests_client import OAuth2Session
-
+from requests_oauthlib import OAuth2Session
+from flask import make_response
 # クライアントIDとクライアントシークレットを環境変数から取得する
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # HTTPSを強制しないようにする（ローカル開発用）
 client_id = os.environ['GOOGLE_CLIENT_ID']
@@ -199,53 +199,120 @@ def delete_todo_task():
     finally:
         db_session.close()
 
-# 認可フローの開始
-@main.route("/authorize")
+@main.route("/auth")
 def authorize():
     google = OAuth2Session(client_id, scope=scope, redirect_uri=redirect_uri)
     authorization_url, state = google.authorization_url(authorization_base_url, access_type="offline")
     
     # stateをセッションに保存
-    session['oauth_state'] = state
-    return redirect(authorization_url)
+    session['state'] = state
+    print(f'state saved in session: {session["state"]}')
+    
+    # 認証URLをクライアントに返す
+    return jsonify({'authorization_url': authorization_url})
 
-# 認可コードを受け取るコールバック
 @main.route("/callback")
 def callback():
-    google = OAuth2Session(client_id, state=session['oauth_state'], redirect_uri=redirect_uri)
-    token = google.fetch_token(token_url, client_secret=client_secret, authorization_response=request.url)
-    
-    # トークン情報をセッションに保存
-    session['oauth_token'] = token
-    return redirect(url_for("get_free_times"))
+    try:
+        
+            # stateのチェック
+        state_from_provider = request.args.get('state')
+        state_in_session = session.get('oauth_state', None)
+        print(f'state from auth: {state_from_provider}')
+        print(f'state in session: {state_in_session}')
 
-# Google Calendar APIにリクエストを送信して空き時間を取得
-@main.route("/get_free_times")
+    
+
+        google = OAuth2Session(client_id, state=state_in_session, redirect_uri=redirect_uri)
+        token = google.fetch_token(token_url, authorization_response=request.url, client_secret=client_secret)
+
+        print(f'Token: {token}')
+
+        # アクセストークンをJSON形式で返す
+        response_data = {'access_token': token['access_token']}
+        return jsonify(response_data)
+
+    except Exception as e:
+        # エラーの詳細を出力
+        print(f'Error during token fetching: {e}')
+        return 'Authentication failed!', 400
+
+# クライアントからのリクエストを受け取って、指定の期間の空き時間を取得
+@main.route("/get_free_times", methods=['POST'])
 def get_free_times():
     if 'oauth_token' not in session:
-        return redirect(url_for('authorize'))
+        return jsonify({"error": "Unauthorized"}), 401
 
-    # 保存されたトークンを使用
     google = OAuth2Session(client_id, token=session['oauth_token'])
-    
-    # Freebusy APIのエンドポイントにリクエスト
-    calendar_id = "primary"
-    time_min = "2024-09-15T00:00:00Z"  # UTC時間で指定
-    time_max = "2024-09-16T00:00:00Z"
-    
+    if google.token_expired():
+        google = OAuth2Session(client_id, token=session['oauth_token'])
+        google.refresh_token(token_url, client_secret=client_secret)
+        session['oauth_token'] = google.token
+
+    data = request.json
+    start_date = data.get('start_date')
+    end_date = data.get('end_date')
+    calendar_id = data.get('calendar_id', 'primary')
+  
+        
+# 空き時間の計算（ここで、空き時間のロジックを実装します）
+    free_times = []
+
+    # JST タイムゾーンを設定
+    jst = pytz.timezone('Asia/Tokyo')
+
+    # 文字列を datetime オブジェクトに変換
+    start_date_datetime = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S%z")
+    end_date_datetime = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S%z")
+
+    # UTC に変換
+    start_time_utc = start_date_datetime.astimezone(pytz.UTC)
+    end_time_utc = end_date_datetime.astimezone(pytz.UTC)
+
+        # Freebusy APIのリクエストを作成
     freebusy_query = {
-        "timeMin": time_min,
-        "timeMax": time_max,
+        "timeMin": start_time_utc,
+        "timeMax": end_time_utc,
         "items": [{"id": calendar_id}]
     }
-    
-    response = google.post('https://www.googleapis.com/calendar/v3/freeBusy', json=freebusy_query)
-    
-    if response.status_code == 200:
+    try:
+        response = google.post('https://www.googleapis.com/calendar/v3/freeBusy', json=freebusy_query)
+        
         busy_times = response.json()['calendars'][calendar_id]['busy']
-        return json.dumps(busy_times, indent=2)
-    else:
-        return f"Error: {response.status_code}, {response.text}"
+
+        # 予定のある時間帯を計算
+        busy_periods = []
+        for busy_period in busy_times:
+            start = busy_period['start']
+            end = busy_period['end']
+
+            # 日本時間に変換
+            start_time_jst = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(jst)
+            end_time_jst = datetime.fromisoformat(end.replace("Z", "+00:00")).astimezone(jst)
+
+            busy_periods.append((start_time_jst, end_time_jst))
+
+        # 予定のない時間帯を計算
+        busy_periods.sort()  # 予定のある時間帯をソート
+        current_start = start_date_datetime.astimezone(jst)
+
+        for busy_start, busy_end in busy_periods:
+            # 予定のある時間帯の間に空き時間があれば追加
+            if busy_start > current_start:
+                free_times.append((current_start, busy_start))
+            
+            # 空き時間の開始を更新
+            current_start = max(current_start, busy_end)
+
+        # 最後の空き時間を追加
+        if current_start < end_date_datetime:
+            free_times.append((current_start, end_date_datetime))
+
+            return jsonify({"free_times": free_times})
+        else:
+            return jsonify({"error": response.text}), response.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 # @main.route('/submit-tasks', methods=['POST'])
 # def submit_tasks():
 #     data = request.get_json()
