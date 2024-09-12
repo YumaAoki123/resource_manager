@@ -4,15 +4,6 @@ from email_service import create_form
 from calendar_service import calculate_free_times
 from dotenv import load_dotenv
 from model.models import Base, User, db_session, TaskInfo, TaskConditions, EventMappings
-import secrets
-import time
-from flask import redirect, request
-import os
-import requests
-import webbrowser
-from requests_oauthlib import OAuth2Session
-from flask_session import Session
-import json
 
 
 from sqlalchemy.orm import sessionmaker
@@ -22,7 +13,7 @@ from datetime import datetime
 import pytz
 # calendar_service.py
 from googleapiclient.discovery import build
-import pytz
+
 from datetime import datetime
 import os
 import os.path
@@ -203,18 +194,36 @@ def delete_todo_task():
 def authorize():
     google = OAuth2Session(client_id, scope=scope, redirect_uri=redirect_uri)
     authorization_url, state = google.authorization_url(authorization_base_url, access_type="offline")
-    
+                # セッションIDをデバッグ
+    auth_session_id = request.cookies.get('session')
+    print(f'auth_session_id ID from cookies: {auth_session_id}')
+
     # stateをセッションに保存
     session['state'] = state
     print(f'state saved in session: {session["state"]}')
+        # ユーザー情報も取得（デバッグ用）
+    username = session.get('username', None)
+    print(f'Username from session: {username}')
     
+    saved_state = session.get('state')
+    print(f'Username from session: {saved_state}')
     # 認証URLをクライアントに返す
+    
     return jsonify({'authorization_url': authorization_url})
 
 @main.route("/callback")
 def callback():
     try:
-        
+
+                # クエリパラメータまたはヘッダーからセッションIDを取得
+        client_session_id = request.args.get('session_id', None)
+        print(f'client_session_id: {client_session_id}')
+
+                # セッションIDをデバッグ
+        session_id = request.cookies.get('session')
+        print(f'Session ID from cookies: {session_id}')
+        username = session.get('username', None)
+        print(f'Username from session: {username}')
             # stateのチェック
         state_from_provider = request.args.get('state')
         state_in_session = session.get('oauth_state', None)
@@ -222,20 +231,16 @@ def callback():
         print(f'state in session: {state_in_session}')
 
     
-
-        google = OAuth2Session(client_id, state=state_in_session, redirect_uri=redirect_uri)
-        token = google.fetch_token(token_url, authorization_response=request.url, client_secret=client_secret)
-
-        print(f'Token: {token}')
-
-        # アクセストークンをJSON形式で返す
-        response_data = {'access_token': token['access_token']}
-        return jsonify(response_data)
+        return jsonify('response_data')
 
     except Exception as e:
         # エラーの詳細を出力
         print(f'Error during token fetching: {e}')
         return 'Authentication failed!', 400
+
+@main.route("/favicon.ico")
+def favicon():
+    return '', 204
 
 # クライアントからのリクエストを受け取って、指定の期間の空き時間を取得
 @main.route("/get_free_times", methods=['POST'])
