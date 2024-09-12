@@ -1247,24 +1247,24 @@ def open_main_app():
         # free_times_label.grid(pady=20, padx=20)
         # 認証を開始する関数
         def start_authorization():
-            auth_url = 'http://127.0.0.1:5000/auth'  # 認証エンドポイント
-            
+            cookies = load_cookies()
+            if cookies:
+                session = requests.Session()
+                session.cookies.update(cookies)
+                auth_url = 'http://127.0.0.1:5000/auth'  # 認証エンドポイント
 
-            # セッションの作成
-            session = requests.Session()
+                # 認証リクエストの送信
+                response = session.get(auth_url)
 
-            # 認証リクエストの送信
-            response = session.get(auth_url)
+                if response.status_code == 200:
+                    authorization_url = response.json().get('authorization_url')
+                    print(f'authorization_url: {authorization_url}')
+                    # 認証用URLをブラウザで開く
+                    webbrowser.open(authorization_url)
 
-            if response.status_code == 200:
-                authorization_url = response.json().get('authorization_url')
-                print(f'authorization_url:{authorization_url}')
-                # 認証用URLをブラウザで開く
-                webbrowser.open(authorization_url)
-              
-            else:
-                print(f"認証失敗: {response.status_code} {response.text}")
-
+                else:
+                    print(f"認証失敗: {response.status_code} {response.text}")
+                return print(f'success:')
 
         def get_free_times_from_backend(start_date, end_date):
             

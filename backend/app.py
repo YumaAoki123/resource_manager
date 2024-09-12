@@ -15,6 +15,7 @@ def create_app():
     app.config['SESSION_TYPE'] = 'filesystem'
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'default_secret_key')  # セッションの暗号化に必要
     Session(app)
+    app.config['SESSION_COOKIE_NAME'] = 'session'
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(weeks=2)  # セッションの有効期限を1週間に設定
     # Register blueprints
     app.register_blueprint(main)
