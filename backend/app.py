@@ -6,6 +6,7 @@ import model.models
 from config import Config
 from flask_session import Session
 from datetime import timedelta
+from cachelib import FileSystemCache
 def create_app():
     app = Flask(__name__)
 
@@ -14,9 +15,13 @@ def create_app():
     # セッションの設定
     app.config['SESSION_TYPE'] = 'filesystem'
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'default_secret_key')  # セッションの暗号化に必要
-    Session(app)
+    app.config['SESSION_USE_SIGNER'] = True
+    app.config['SESSION_SERIALIZATION_FORMAT'] = 'json'
     app.config['SESSION_COOKIE_NAME'] = 'session'
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(weeks=2)  # セッションの有効期限を1週間に設定
+
+    # セッションを初期化
+    Session(app)
     # Register blueprints
     app.register_blueprint(main)
 
