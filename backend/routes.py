@@ -25,6 +25,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from requests_oauthlib import OAuth2Session
 from flask import make_response
+import flask_session
 # クライアントIDとクライアントシークレットを環境変数から取得する
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # HTTPSを強制しないようにする（ローカル開発用）
 client_id = os.environ['GOOGLE_CLIENT_ID']
@@ -36,7 +37,7 @@ scope = ["https://www.googleapis.com/auth/calendar.readonly"]
 
 # Google OAuth 2.0エンドポイント
 authorization_base_url = "https://accounts.google.com/o/oauth2/auth"
-token_url = "https://oauth2.googleapis.com/token"
+token_url = 'https://accounts.google.com/o/oauth2/token'
 
 main = Blueprint('main', __name__)
 
@@ -195,18 +196,17 @@ def authorize():
     google = OAuth2Session(client_id, scope=scope, redirect_uri=redirect_uri)
     authorization_url, state = google.authorization_url(authorization_base_url, access_type="offline")
                 # セッションIDをデバッグ
+    
     auth_session_id = request.cookies.get('session')
     print(f'auth_session_id ID from cookies: {auth_session_id}')
-
-    # stateをセッションに保存
     session['state'] = state
-    print(f'state saved in session: {session["state"]}')
+    
         # ユーザー情報も取得（デバッグ用）
     username = session.get('username', None)
     print(f'Username from session: {username}')
     
     saved_state = session.get('state')
-    print(f'Username from session: {saved_state}')
+    print(f'saved_state: {saved_state}')
     # 認証URLをクライアントに返す
     
     return jsonify({'authorization_url': authorization_url})
@@ -224,11 +224,20 @@ def callback():
         print(f'Session ID from cookies: {session_id}')
         username = session.get('username', None)
         print(f'Username from session: {username}')
-            # stateのチェック
-        state_from_provider = request.args.get('state')
-        state_in_session = session.get('oauth_state', None)
-        print(f'state from auth: {state_from_provider}')
-        print(f'state in session: {state_in_session}')
+
+        #     # stateのチェック
+        # state_from_provider = request.args.get('state')
+        # state_in_session = session.get('oauth_state', None)
+        # print(f'state from auth: {state_from_provider}')
+        # print(f'state in session: {state_in_session}')
+            # トークン情報を表示
+                # セッションから `state` を取得
+        google = OAuth2Session(client_id, redirect_uri=redirect_uri)
+
+        # トークンを取得
+        google.fetch_token(token_url, authorization_response=request.url, client_secret=client_secret)
+        token = google.token
+        print(f'Token: {token}')
 
     
         return jsonify('response_data')
