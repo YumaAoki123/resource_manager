@@ -1,7 +1,7 @@
 from flask import Blueprint,Flask, request, jsonify, session, redirect, url_for, render_template
 from werkzeug.security import generate_password_hash, check_password_hash
 from email_service import create_form
-from calendar_service import calculate_free_times
+from calendar_service import calculate_free_times, get_credentials, get_calendar_service
 from dotenv import load_dotenv
 from model.models import Base, User, db_session, TaskInfo, TaskConditions, EventMappings
 
@@ -254,79 +254,18 @@ def favicon():
 # クライアントからのリクエストを受け取って、指定の期間の空き時間を取得
 @main.route("/get_free_times", methods=['POST'])
 def get_free_times():
-    if 'oauth_token' not in session:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    google = OAuth2Session(client_id, token=session['oauth_token'])
-    if google.token_expired():
-        google = OAuth2Session(client_id, token=session['oauth_token'])
-        google.refresh_token(token_url, client_secret=client_secret)
-        session['oauth_token'] = google.token
+    get_credentials()
+    get_calendar_service()
 
     data = request.json
     start_date = data.get('start_date')
     end_date = data.get('end_date')
     calendar_id = data.get('calendar_id', 'primary')
-  
+    
+    calculate_free_times(data)
+    return jsonify('success')
         
-# 空き時間の計算（ここで、空き時間のロジックを実装します）
-    free_times = []
 
-    # JST タイムゾーンを設定
-    jst = pytz.timezone('Asia/Tokyo')
-
-    # 文字列を datetime オブジェクトに変換
-    start_date_datetime = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S%z")
-    end_date_datetime = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S%z")
-
-    # UTC に変換
-    start_time_utc = start_date_datetime.astimezone(pytz.UTC)
-    end_time_utc = end_date_datetime.astimezone(pytz.UTC)
-
-        # Freebusy APIのリクエストを作成
-    freebusy_query = {
-        "timeMin": start_time_utc,
-        "timeMax": end_time_utc,
-        "items": [{"id": calendar_id}]
-    }
-    try:
-        response = google.post('https://www.googleapis.com/calendar/v3/freeBusy', json=freebusy_query)
-        
-        busy_times = response.json()['calendars'][calendar_id]['busy']
-
-        # 予定のある時間帯を計算
-        busy_periods = []
-        for busy_period in busy_times:
-            start = busy_period['start']
-            end = busy_period['end']
-
-            # 日本時間に変換
-            start_time_jst = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(jst)
-            end_time_jst = datetime.fromisoformat(end.replace("Z", "+00:00")).astimezone(jst)
-
-            busy_periods.append((start_time_jst, end_time_jst))
-
-        # 予定のない時間帯を計算
-        busy_periods.sort()  # 予定のある時間帯をソート
-        current_start = start_date_datetime.astimezone(jst)
-
-        for busy_start, busy_end in busy_periods:
-            # 予定のある時間帯の間に空き時間があれば追加
-            if busy_start > current_start:
-                free_times.append((current_start, busy_start))
-            
-            # 空き時間の開始を更新
-            current_start = max(current_start, busy_end)
-
-        # 最後の空き時間を追加
-        if current_start < end_date_datetime:
-            free_times.append((current_start, end_date_datetime))
-
-            return jsonify({"free_times": free_times})
-        else:
-            return jsonify({"error": response.text}), response.status_code
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 # @main.route('/submit-tasks', methods=['POST'])
 # def submit_tasks():
 #     data = request.get_json()
