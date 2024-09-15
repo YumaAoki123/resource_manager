@@ -10,6 +10,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from model.models import User, Token, db
 
 # 認証に必要なスコープ
 SCOPES = [
@@ -17,6 +18,28 @@ SCOPES = [
 ]
 
 TOKEN_PICKLE = 'token.pickle'
+
+# ユーザーごとにトークンを保存するための関数
+def save_token_to_db(user, creds):
+    # 既存のトークンがあるか確認
+    token_entry = db.query(Token).filter_by(user_id=user.id).first()
+    
+    # トークンがすでに存在する場合は更新、存在しない場合は新規作成
+    if token_entry:
+        token_entry.access_token = creds.token
+        token_entry.refresh_token = creds.refresh_token
+        token_entry.token_expiry = creds.expiry
+    else:
+        new_token = Token(
+            user_id=user.id,
+            access_token=creds.token,
+            refresh_token=creds.refresh_token,
+            token_expiry=creds.expiry
+        )
+        db.add(new_token)
+    
+    db.commit()
+    db.close()
 
 def get_credentials():
     creds = None
@@ -55,10 +78,10 @@ def get_calendar_service():
 
 def calculate_free_times(start_date, end_date, calendar_id="primary"):
     free_times = []
-
+    print(f'start_date:{start_date}')
     # JST タイムゾーンを設定
     jst = pytz.timezone('Asia/Tokyo')
-
+    
     # 文字列を datetime オブジェクトに変換
     start_date_datetime = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S%z")
     end_date_datetime = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S%z")

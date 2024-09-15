@@ -2,7 +2,6 @@ from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey,
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
-
 # SQLiteエンジンを作成
 engine = create_engine('sqlite:///resource_manager.db')
 # ベースクラスを作成
@@ -19,6 +18,24 @@ class User(Base):
 
     # タスクとのリレーションシップ
     tasks = relationship("TaskInfo", back_populates="user")
+    # Tokenとの一対一のリレーションシップ
+    token = relationship("Token", back_populates="user", uselist=False)
+
+# Tokenテーブルの定義
+class Token(Base):
+    __tablename__ = 'tokens'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    access_token = Column(String, nullable=False)  # アクセストークン
+    refresh_token = Column(String, nullable=False)  # リフレッシュトークン
+    expires_at = Column(DateTime, nullable=False)  # アクセストークンの有効期限
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))  # トークン作成日時
+
+    # 外部キーとしてUserテーブルのidを指定
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+
+    # Userとのリレーションシップ
+    user = relationship("User", back_populates="token")
 
 # タスク情報テーブルの定義
 class TaskInfo(Base):
@@ -73,4 +90,4 @@ Base.metadata.create_all(engine)
 # セッションを作成
 Session = sessionmaker(bind=engine)
 
-db_session = Session()
+db = Session()
