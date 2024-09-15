@@ -1246,41 +1246,32 @@ def open_main_app():
         # free_times_label = ctk.CTkLabel(event_window, text=free_times_text, justify="left")
         # free_times_label.grid(pady=20, padx=20)
         # 認証を開始する関数
-        def start_authorization():
-            cookies = load_cookies()
-            if cookies:
-                session = requests.Session()
-                session.cookies.update(cookies)
-                auth_url = 'http://127.0.0.1:5000/auth'  # 認証エンドポイント
+        def get_free_times():
+            """
+            デスクトップアプリからバックエンドに期間を送信し、空き時間を取得する。
+            """
+            start_date, end_date = get_date_range()
+            session_id = load_cookies()
+            print(f'session?id:{session_id}')
+            if not isinstance(session_id, str):
+                session_id = str(session_id)  # 必要に応じてセッションIDを文字列に変換
+                print(f'session_id: {session_id}')
 
-                # 認証リクエストの送信
-                response = session.get(auth_url)
-
-                if response.status_code == 200:
-                    authorization_url = response.json().get('authorization_url')
-                    print(f'authorization_url: {authorization_url}')
-                    # 認証用URLをブラウザで開く
-                    webbrowser.open(authorization_url)
-
-                else:
-                    print(f"認証失敗: {response.status_code} {response.text}")
-                return print(f'success:')
-
-        def get_free_times_from_backend(start_date, end_date):
-            
-            
-            url = 'http://127.0.0.1:5000/get_free_times'
+            url = 'http://127.0.0.1:5000/get_free_times'  # バックエンドAPIのURL
             data = {
                 "start_date": start_date,
                 "end_date": end_date,
                 "calendar_id": "primary"  # 必要に応じてカレンダーIDを変更
             }
+            headers = {
+                "Session-ID": session_id  # セッションIDをヘッダーに含める
+            }
 
             try:
-                response = requests.post(url, json=data)
+                response = requests.post(url, json=data, headers=headers)
                 if response.status_code == 200:
                     free_times = response.json().get('free_times')
-                    print(f'free_times:{free_times}')
+                    print(f'Free times: {free_times}')
                     return free_times
                 else:
                     print(f"Error: {response.json().get('error')}")
@@ -1288,7 +1279,6 @@ def open_main_app():
             except requests.RequestException as e:
                 print(f"Request error: {e}")
                 return None
-
         # #GoogleCalendarの既存の予定情報を取得し、それ以外の空いている時間帯情報を作成。
         # def get_free_times(calendar_id="primary"):
         #     # 開始日と終了日を取得
@@ -1479,7 +1469,7 @@ def open_main_app():
         def on_check_button_click():
             start_date, end_date = get_date_range()
             # 空き時間を取得
-            free_times = get_free_times_from_backend(start_date,end_date)
+            free_times = get_free_times()
             # ボタンがクリックされたときに呼ばれる関数
             task_duration_minutes = get_task_duration()
             selected_ranges = get_selected_time_ranges()
@@ -1522,7 +1512,7 @@ def open_main_app():
         difference_label.grid(row=11, column=0, padx=20, pady=5)
 
         # 選択した時間範囲を取得するボタン
-        select_button = ctk.CTkButton(event_window, text="空き時間検索", command=start_authorization)
+        select_button = ctk.CTkButton(event_window, text="空き時間検索", command=get_free_times)
         select_button.grid(row=10, column=0, pady=20)
 
 
@@ -1634,7 +1624,7 @@ def open_main_app():
             service = get_calendar_service()
             # 選択されたタスクの名前とUUIDがある場合のみ実行
             if schedule_manager.selected_task_name and schedule_manager.selected_task_uuid:
-                free_times = fetch_free_times()
+                free_times = get_free_times()
                 task_duration = get_task_duration()
                 start_date, end_date = get_date_range()
                 selected_time_ranges = get_selected_time_ranges()
@@ -1667,7 +1657,7 @@ def open_main_app():
         add_event_button = ctk.CTkButton(event_window, text="Googleカレンダーに追加", command=on_insert_button_click)
         add_event_button.grid(row=12, column=0, pady=20)
 
-        test_button = ctk.CTkButton(event_window, text="test", command=get_free_times_from_backend)
+        test_button = ctk.CTkButton(event_window, text="test", command=get_free_times)
         test_button.grid(row=12, column=1, pady=20)
     
     

@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from email_service import create_form
 from calendar_service import calculate_free_times, get_credentials, get_calendar_service
 from dotenv import load_dotenv
-from model.models import Base, User, db_session, TaskInfo, TaskConditions, EventMappings
+from model.models import Base, User, db, TaskInfo, TaskConditions, EventMappings
 
 
 from sqlalchemy.orm import sessionmaker
@@ -61,14 +61,14 @@ def register():
 
     try:
         # データベースに新しいユーザーを追加
-        db_session.add(new_user)
-        db_session.commit()
+        db.add(new_user)
+        db.commit()
 
         # ユーザー登録が成功したらクッキーを設定してセッションを開始
         session['username'] = username  # クッキーに保存するデータ
         return jsonify({"message": "User registered successfully!"}), 201
     except IntegrityError:
-        db_session.rollback()
+        db.rollback()
         return jsonify({"error": "Username already exists"}), 409
 
 @main.route('/login', methods=['POST'])
@@ -78,7 +78,7 @@ def login():
     password = data.get('password')
      # デバッグログを追加して、入力されたユーザー名を確認
     print(f"Received username: {username}")
-    user = db_session.query(User).filter_by(username=username).first()
+    user = db.query(User).filter_by(username=username).first()
 
     if user is None:
         # デバッグ用のメッセージを表示
@@ -135,21 +135,21 @@ def add_task():
 
     try:
         new_task = TaskInfo(task_uuid=task_uuid, task_name=task_name)
-        db_session.add(new_task)
-        db_session.commit()
+        db.add(new_task)
+        db.commit()
         return jsonify({"message": "Task added successfully", "task_uuid": task_uuid}), 201
     except Exception as e:
-        db_session.rollback()
+        db.rollback()
         return jsonify({"error": str(e)}), 500
     finally:
-        db_session.close()
+        db.close()
 
 @main.route('/get_tasks_without_conditions', methods=['GET'])
 def get_tasks_without_conditions():
    
     try:
         # LEFT JOIN を使用して条件がないタスクを取得
-        tasks = db_session.query(TaskInfo).outerjoin(TaskConditions, TaskInfo.task_uuid == TaskConditions.task_uuid) \
+        tasks = db.query(TaskInfo).outerjoin(TaskConditions, TaskInfo.task_uuid == TaskConditions.task_uuid) \
             .filter(TaskConditions.task_uuid == None).all()
 
         # 必要なデータをリストに整形
@@ -159,7 +159,7 @@ def get_tasks_without_conditions():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
-        db_session.close()
+        db.close()
 
 @main.route('/delete_todo_task', methods=['DELETE'])
 def delete_todo_task():
@@ -171,81 +171,26 @@ def delete_todo_task():
 
     try:
         # task_infoからタスクを削除
-        task = db_session.query(TaskInfo).filter_by(task_uuid=task_uuid).first()
+        task = db.query(TaskInfo).filter_by(task_uuid=task_uuid).first()
 
         if not task:
             return jsonify({"error": "Task not found"}), 404
 
         # 関連するtask_conditionsやevent_mappingsも削除する場合
-        db_session.query(TaskConditions).filter_by(task_uuid=task_uuid).delete()
-        db_session.query(EventMappings).filter_by(task_uuid=task_uuid).delete()
+        db.query(TaskConditions).filter_by(task_uuid=task_uuid).delete()
+        db.query(EventMappings).filter_by(task_uuid=task_uuid).delete()
 
         # task_info自体を削除
-        db_session.delete(task)
-        db_session.commit()
+        db.delete(task)
+        db.commit()
 
         return jsonify({"message": "Task deleted successfully!"}), 200
     except Exception as e:
-        db_session.rollback()
+        db.rollback()
         return jsonify({"error": str(e)}), 500
     finally:
-        db_session.close()
+        db.close()
 
-@main.route("/auth")
-def authorize():
-    google = OAuth2Session(client_id, scope=scope, redirect_uri=redirect_uri)
-    authorization_url, state = google.authorization_url(authorization_base_url, access_type="offline")
-                # セッションIDをデバッグ
-    
-    auth_session_id = request.cookies.get('session')
-    print(f'auth_session_id ID from cookies: {auth_session_id}')
-    session['state'] = state
-    
-        # ユーザー情報も取得（デバッグ用）
-    username = session.get('username', None)
-    print(f'Username from session: {username}')
-    
-    saved_state = session.get('state')
-    print(f'saved_state: {saved_state}')
-    # 認証URLをクライアントに返す
-    
-    return jsonify({'authorization_url': authorization_url})
-
-@main.route("/callback")
-def callback():
-    try:
-
-                # クエリパラメータまたはヘッダーからセッションIDを取得
-        client_session_id = request.args.get('session_id', None)
-        print(f'client_session_id: {client_session_id}')
-
-                # セッションIDをデバッグ
-        session_id = request.cookies.get('session')
-        print(f'Session ID from cookies: {session_id}')
-        username = session.get('username', None)
-        print(f'Username from session: {username}')
-
-        #     # stateのチェック
-        # state_from_provider = request.args.get('state')
-        # state_in_session = session.get('oauth_state', None)
-        # print(f'state from auth: {state_from_provider}')
-        # print(f'state in session: {state_in_session}')
-            # トークン情報を表示
-                # セッションから `state` を取得
-        google = OAuth2Session(client_id, redirect_uri=redirect_uri)
-
-        # トークンを取得
-        google.fetch_token(token_url, authorization_response=request.url, client_secret=client_secret)
-        token = google.token
-        print(f'Token: {token}')
-
-    
-        return jsonify('response_data')
-
-    except Exception as e:
-        # エラーの詳細を出力
-        print(f'Error during token fetching: {e}')
-        return 'Authentication failed!', 400
 
 @main.route("/favicon.ico")
 def favicon():
@@ -254,18 +199,46 @@ def favicon():
 # クライアントからのリクエストを受け取って、指定の期間の空き時間を取得
 @main.route("/get_free_times", methods=['POST'])
 def get_free_times():
-    get_credentials()
-    get_calendar_service()
+    try:
+        data = request.get_json()
+        start_date = data['start_date']
+        end_date = data['end_date']
+        calendar_id = data.get('calendar_id', 'primary')
+        print(f'data:{data}')
 
-    data = request.json
-    start_date = data.get('start_date')
-    end_date = data.get('end_date')
-    calendar_id = data.get('calendar_id', 'primary')
-    
-    calculate_free_times(data)
-    return jsonify('success')
+        # ヘッダーからセッションIDを取得
+        session_id = request.headers.get('Session-ID')
+        print(f'data:{session_id}')
+        if not session_id:
+            return jsonify({"error": "Session ID is missing."}), 400
         
+        # セッションからユーザー名とパスワードを取得
+        username = session.get('username')
+        password = session.get('password')
+        print(f'data:{username}')
 
+        # Google Calendar APIを使ってイベントを取得
+        free_times = calculate_free_times(start_date, end_date, calendar_id)
+        print(f'free_times_backend:{free_times}')
+        return jsonify({"free_times": free_times}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+        
+@main.route('/get_credentials', methods=['POST'])
+def get_credentials():
+    if 'username' in session:
+        username = session['username']
+        
+        # ユーザー名を使ってデータベースからアクセストークンを取得
+        user = User.query.filter_by(username=username).first()
+        if user:
+            token = user.token  # 例：トークンはユーザーテーブルに保存されている
+            return {"token": token}
+        else:
+            return {"error": "User not found"}, 404
+    else:
+        return {"error": "User not logged in"}, 401
 # @main.route('/submit-tasks', methods=['POST'])
 # def submit_tasks():
 #     data = request.get_json()
