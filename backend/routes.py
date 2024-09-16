@@ -4,8 +4,6 @@ from email_service import create_form
 from calendar_service import calculate_free_times, get_credentials, get_calendar_service
 from dotenv import load_dotenv
 from model.models import Base, User, db, TaskInfo, TaskConditions, EventMappings
-
-
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 import uuid
@@ -143,21 +141,35 @@ def add_task():
         return jsonify({"error": str(e)}), 500
     finally:
         db.close()
-
+        
 @main.route('/get_tasks_without_conditions', methods=['GET'])
 def get_tasks_without_conditions():
-   
     try:
-        # LEFT JOIN を使用して条件がないタスクを取得
+        # リクエストのクッキーやヘッダーからセッションIDを取得
+        session_id = request.cookies.get('session_id')  # クッキーから取得する場合
+        # session_id = request.headers.get('Authorization')  # ヘッダーから取得する場合
+
+        if not session_id:
+            return jsonify({"error": "セッションIDが提供されていません"}), 400
+
+        # セッションIDに基づいてユーザーを検索
+        user = db.query(User).filter_by(session_id=session_id).first()
+
+        if not user:
+            return jsonify({"error": "無効なセッションIDです"}), 401
+
+        # ログインしているユーザーのIDを使ってタスクを取得
         tasks = db.query(TaskInfo).outerjoin(TaskConditions, TaskInfo.task_uuid == TaskConditions.task_uuid) \
-            .filter(TaskConditions.task_uuid == None).all()
+            .filter(TaskConditions.task_uuid == None, TaskInfo.user_id == user.id).all()
 
         # 必要なデータをリストに整形
         task_list = [{'task_uuid': task.task_uuid, 'task_name': task.task_name} for task in tasks]
         
         return jsonify(task_list), 200
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
     finally:
         db.close()
 
@@ -199,46 +211,22 @@ def favicon():
 # クライアントからのリクエストを受け取って、指定の期間の空き時間を取得
 @main.route("/get_free_times", methods=['POST'])
 def get_free_times():
-    try:
         data = request.get_json()
         start_date = data['start_date']
         end_date = data['end_date']
         calendar_id = data.get('calendar_id', 'primary')
         print(f'data:{data}')
-
-        # ヘッダーからセッションIDを取得
-        session_id = request.headers.get('Session-ID')
-        print(f'data:{session_id}')
-        if not session_id:
-            return jsonify({"error": "Session ID is missing."}), 400
         
         # セッションからユーザー名とパスワードを取得
         username = session.get('username')
-        password = session.get('password')
-        print(f'data:{username}')
+        print(f'username:{username}')
 
         # Google Calendar APIを使ってイベントを取得
         free_times = calculate_free_times(start_date, end_date, calendar_id)
         print(f'free_times_backend:{free_times}')
         return jsonify({"free_times": free_times}), 200
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-        
-@main.route('/get_credentials', methods=['POST'])
-def get_credentials():
-    if 'username' in session:
-        username = session['username']
-        
-        # ユーザー名を使ってデータベースからアクセストークンを取得
-        user = User.query.filter_by(username=username).first()
-        if user:
-            token = user.token  # 例：トークンはユーザーテーブルに保存されている
-            return {"token": token}
-        else:
-            return {"error": "User not found"}, 404
-    else:
-        return {"error": "User not logged in"}, 401
+
 # @main.route('/submit-tasks', methods=['POST'])
 # def submit_tasks():
 #     data = request.get_json()

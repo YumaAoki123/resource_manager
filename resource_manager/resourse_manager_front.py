@@ -871,10 +871,17 @@ def open_main_app():
 
     def update_todo_listbox(todo_listbox):
         todo_listbox.delete(0, ctk.END)
-        
+
         try:
+         
+            # セッションIDを読み込む
+            cookies = load_cookies()
+            
+            session = requests.Session()
+            session.cookies.update(cookies)
             # サーバーから条件のないタスクを取得
-            response = requests.get('http://127.0.0.1:5000/get_tasks_without_conditions')
+            response = session.get('http://127.0.0.1:5000/get_tasks_without_conditions')
+            
             if response.status_code == 200:
                 tasks = response.json()
                 for task in tasks:
@@ -1251,11 +1258,9 @@ def open_main_app():
             デスクトップアプリからバックエンドに期間を送信し、空き時間を取得する。
             """
             start_date, end_date = get_date_range()
-            session_id = load_cookies()
-            print(f'session?id:{session_id}')
-            if not isinstance(session_id, str):
-                session_id = str(session_id)  # 必要に応じてセッションIDを文字列に変換
-                print(f'session_id: {session_id}')
+            cookies = load_cookies()
+            print(f'session?id:{cookies}')
+          
 
             url = 'http://127.0.0.1:5000/get_free_times'  # バックエンドAPIのURL
             data = {
@@ -1263,22 +1268,23 @@ def open_main_app():
                 "end_date": end_date,
                 "calendar_id": "primary"  # 必要に応じてカレンダーIDを変更
             }
-            headers = {
-                "Session-ID": session_id  # セッションIDをヘッダーに含める
-            }
-
-            try:
-                response = requests.post(url, json=data, headers=headers)
-                if response.status_code == 200:
-                    free_times = response.json().get('free_times')
-                    print(f'Free times: {free_times}')
-                    return free_times
-                else:
-                    print(f"Error: {response.json().get('error')}")
+            
+            if cookies:
+                
+                try:
+                    session = requests.Session()
+                    session.cookies.update(cookies)
+                    response = session.post(url, json=data)
+                    if response.status_code == 200:
+                        free_times = response.json().get('free_times')
+                        print(f'Free times: {free_times}')
+                        return free_times
+                    else:
+                        print(f"Error: {response.json().get('error')}")
+                        return None
+                except requests.RequestException as e:
+                    print(f"Request error: {e}")
                     return None
-            except requests.RequestException as e:
-                print(f"Request error: {e}")
-                return None
         # #GoogleCalendarの既存の予定情報を取得し、それ以外の空いている時間帯情報を作成。
         # def get_free_times(calendar_id="primary"):
         #     # 開始日と終了日を取得
@@ -1512,7 +1518,7 @@ def open_main_app():
         difference_label.grid(row=11, column=0, padx=20, pady=5)
 
         # 選択した時間範囲を取得するボタン
-        select_button = ctk.CTkButton(event_window, text="空き時間検索", command=get_free_times)
+        select_button = ctk.CTkButton(event_window, text="空き時間検索", command=on_check_button_click)
         select_button.grid(row=10, column=0, pady=20)
 
 

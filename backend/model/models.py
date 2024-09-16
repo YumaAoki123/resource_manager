@@ -2,6 +2,8 @@ from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey,
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
+from sqlalchemy import Column, Integer, String, DateTime, LargeBinary
+from sqlalchemy.ext.declarative import declarative_base
 # SQLiteエンジンを作成
 engine = create_engine('sqlite:///resource_manager.db')
 # ベースクラスを作成
@@ -24,15 +26,15 @@ class User(Base):
 # Tokenテーブルの定義
 class Token(Base):
     __tablename__ = 'tokens'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    access_token = Column(String, nullable=False)  # アクセストークン
-    refresh_token = Column(String, nullable=False)  # リフレッシュトークン
-    expires_at = Column(DateTime, nullable=False)  # アクセストークンの有効期限
-    created_at = Column(DateTime, default=datetime.now(timezone.utc))  # トークン作成日時
-
+    
+    id = Column(Integer, primary_key=True)
     # 外部キーとしてUserテーブルのidを指定
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    access_token = Column(LargeBinary, nullable=False)
+    refresh_token = Column(LargeBinary, nullable=True)
+    expiry = Column(DateTime, nullable=True)  # 確認・修正する部分
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))  # トークン作成日時
+
 
     # Userとのリレーションシップ
     user = relationship("User", back_populates="token")
