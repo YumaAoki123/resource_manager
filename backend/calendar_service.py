@@ -11,7 +11,7 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from model.models import User, Token, db
-
+from flask import session
 # 認証に必要なスコープ
 SCOPES = [
     'https://www.googleapis.com/auth/calendar'
@@ -19,55 +19,64 @@ SCOPES = [
 
 TOKEN_PICKLE = 'token.pickle'
 
-# ユーザーごとにトークンを保存するための関数
-def save_token_to_db(user, creds):
-    # 既存のトークンがあるか確認
-    token_entry = db.query(Token).filter_by(user_id=user.id).first()
-    
-    # トークンがすでに存在する場合は更新、存在しない場合は新規作成
-    if token_entry:
-        token_entry.access_token = creds.token
-        token_entry.refresh_token = creds.refresh_token
-        token_entry.token_expiry = creds.expiry
-    else:
-        new_token = Token(
-            user_id=user.id,
-            access_token=creds.token,
-            refresh_token=creds.refresh_token,
-            token_expiry=creds.expiry
-        )
-        db.add(new_token)
-    
-    db.commit()
-    db.close()
-
 def get_credentials():
     creds = None
-    # 実行環境に応じたファイルパスの取得
-    if getattr(sys, 'frozen', False):
-        # PyInstallerでパッケージ化された場合
-        base_path = sys._MEIPASS
-    else:
-        # 開発中の場合
-        base_path = os.path.dirname(__file__)
-
-    # credentials.jsonのパスを組み立てる
-    credentials_path = os.path.join(base_path, 'credentials.json')
-
-    # 既にトークンが存在する場合、それを読み込む
-    if os.path.exists(TOKEN_PICKLE):
-        with open(TOKEN_PICKLE, 'rb') as token:
-            creds = pickle.load(token)
-    # トークンがないか、無効または期限切れの場合、新しく認証を行う
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
+    
+    # Flaskセッションからユーザー名を取得
+    username = session.get('username')
+    print(f'username:{username}')
+    if not username:
+        raise ValueError("No username found in session.")
+    
+    print(f'username: {username}')
+    
+    # データベースからユーザーを取得
+    user = db.query(User).filter_by(username=username).first()
+    if not user:
+        raise ValueError(f"User with username {username} does not exist.")
+    
+    # データベースからユーザーのトークン情報を取得
+    token = db.query(Token).filter_by(user_id=user.id).first()
+        # デバッグ用: creds の属性を表示
+    
+    # デバッグ用: creds の属性を表示
+    if token and token.access_token:
+        creds = pickle.loads(token.access_token)
+        
+        if creds and creds.valid:
+            return creds
+        elif creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
+            # 更新したトークンを保存
+            token.access_token = pickle.dumps(creds.token)
+            token.refresh_token = pickle.dumps(creds.refresh_token) if creds.refresh_token else None
+            token.expiry = creds.expiry
+            db.commit()
+            return creds
+    else:
+        # トークンが存在しないか無効な場合、新しい認証を行う
+        if getattr(sys, 'frozen', False):
+            base_path = sys._MEIPASS
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
-            creds = flow.run_local_server(port=0)
-        # トークンを保存
-        with open(TOKEN_PICKLE, 'wb') as token:
-            pickle.dump(creds, token)
+            base_path = os.path.dirname(__file__)
+
+        credentials_path = os.path.join(base_path, 'credentials.json')
+
+        flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
+        creds = flow.run_local_server(port=0)
+        expiry = creds.expiry
+        print(f'expiry:{expiry}')
+        
+        # 新しいトークンをデータベースに保存
+        new_token = Token(
+            user_id=user.id,
+            access_token=pickle.dumps(creds.token),
+            refresh_token=pickle.dumps(creds.refresh_token) if creds.refresh_token else None,
+            expiry=creds.expiry  # ここで有効期限を保存
+        )
+        db.add(new_token)
+        db.commit()
+
     return creds
 # Google Calendar API を使うための準備
 def get_calendar_service():
