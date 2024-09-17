@@ -24,11 +24,9 @@ def get_credentials():
     
     # Flaskセッションからユーザー名を取得
     username = session.get('username')
-    print(f'username:{username}')
+    print(f'username: {username}')
     if not username:
         raise ValueError("No username found in session.")
-    
-    print(f'username: {username}')
     
     # データベースからユーザーを取得
     user = db.query(User).filter_by(username=username).first()
@@ -37,47 +35,49 @@ def get_credentials():
     
     # データベースからユーザーのトークン情報を取得
     token = db.query(Token).filter_by(user_id=user.id).first()
-        # デバッグ用: creds の属性を表示
     
-    # デバッグ用: creds の属性を表示
     if token and token.access_token:
-        creds = pickle.loads(token.access_token)
-        
-        if creds and creds.valid:
-            return creds
-        elif creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            # 更新したトークンを保存
-            token.access_token = pickle.dumps(creds.token)
-            token.refresh_token = pickle.dumps(creds.refresh_token) if creds.refresh_token else None
-            token.expiry = creds.expiry
-            db.commit()
-            return creds
+        try:
+            creds = pickle.loads(token.access_token)  # `creds` は Credentials オブジェクトである必要があります
+            print(f'creds: {creds}')
+            if creds and creds.valid:
+                return creds
+            elif creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                # 更新したトークンを保存
+                token.access_token = pickle.dumps(creds)  # `creds` オブジェクト全体を保存
+                token.refresh_token = pickle.dumps(creds.refresh_token) if creds.refresh_token else None
+                token.expiry = creds.expiry
+                db.commit()
+                return creds
+        except Exception as e:
+            print(f'Error loading credentials: {e}')
+    
+    # トークンが存在しないか無効な場合、新しい認証を行う
+    if getattr(sys, 'frozen', False):
+        base_path = sys._MEIPASS
     else:
-        # トークンが存在しないか無効な場合、新しい認証を行う
-        if getattr(sys, 'frozen', False):
-            base_path = sys._MEIPASS
-        else:
-            base_path = os.path.dirname(__file__)
+        base_path = os.path.dirname(__file__)
 
-        credentials_path = os.path.join(base_path, 'credentials.json')
+    credentials_path = os.path.join(base_path, 'credentials.json')
 
-        flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
-        creds = flow.run_local_server(port=0)
-        expiry = creds.expiry
-        print(f'expiry:{expiry}')
-        
-        # 新しいトークンをデータベースに保存
-        new_token = Token(
-            user_id=user.id,
-            access_token=pickle.dumps(creds.token),
-            refresh_token=pickle.dumps(creds.refresh_token) if creds.refresh_token else None,
-            expiry=creds.expiry  # ここで有効期限を保存
-        )
-        db.add(new_token)
-        db.commit()
+    flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
+    creds = flow.run_local_server(port=0)
+    expiry = creds.expiry
+    print(f'expiry: {expiry}')
+    
+    # 新しいトークンをデータベースに保存
+    new_token = Token(
+        user_id=user.id,
+        access_token=pickle.dumps(creds),  # `creds` オブジェクト全体を保存
+        refresh_token=pickle.dumps(creds.refresh_token) if creds.refresh_token else None,
+        expiry=creds.expiry  # ここで有効期限を保存
+    )
+    db.add(new_token)
+    db.commit()
 
     return creds
+
 # Google Calendar API を使うための準備
 def get_calendar_service():
     creds = get_credentials()
