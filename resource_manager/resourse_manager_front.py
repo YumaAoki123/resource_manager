@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import os.path
 import sys
 import pickle
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 import pytz
 import uuid
 import sqlite3
@@ -710,7 +710,13 @@ def open_main_app():
 
         # サーバーへのリクエスト
         try:
-            response = requests.post('http://127.0.0.1:5000/add_task', json={
+                       # セッションIDを読み込む
+            cookies = load_cookies()
+            
+            session = requests.Session()
+            session.cookies.update(cookies)
+            # サーバーから条件のないタスクを取得
+            response = session.post('http://127.0.0.1:5000/add_task', json={
                 'task_name': task_name
             })
             if response.status_code == 201:
@@ -897,8 +903,13 @@ def open_main_app():
         
         if selected_task_index:
             try:
+                            # セッションIDを読み込む
+                cookies = load_cookies()
+                
+                session = requests.Session()
+                session.cookies.update(cookies)
                 # サーバーから条件のないタスクを取得
-                response = requests.get('http://127.0.0.1:5000/get_tasks_without_conditions')
+                response = session.get('http://127.0.0.1:5000/get_tasks_without_conditions')
                 if response.status_code == 200:
                     tasks = response.json()
                     
@@ -908,7 +919,7 @@ def open_main_app():
                     task_uuid = selected_task['task_uuid']  # 正しいキーでtask_uuidを取得
                     
                     # APIエンドポイントに対してDELETEリクエストを送信
-                    delete_response = requests.delete('http://127.0.0.1:5000/delete_todo_task',
+                    delete_response = session.delete('http://127.0.0.1:5000/delete_todo_task',
                                                     json={"task_uuid": task_uuid})
 
                     if delete_response.status_code == 200:
@@ -1066,7 +1077,11 @@ def open_main_app():
             
             # サーバーから条件のないタスクを取得
             try:
-                response = requests.get('http://127.0.0.1:5000/get_tasks_without_conditions')
+                cookies = load_cookies()        
+                session = requests.Session()
+                session.cookies.update(cookies)
+                # サーバーから条件のないタスクを取得
+                response = session.get('http://127.0.0.1:5000/get_tasks_without_conditions')
                 if response.status_code == 200:
                     tasks = response.json()  # タスクのリストを取得
                     
@@ -1253,6 +1268,14 @@ def open_main_app():
         # free_times_label = ctk.CTkLabel(event_window, text=free_times_text, justify="left")
         # free_times_label.grid(pady=20, padx=20)
         # 認証を開始する関数
+                    # タイムゾーンを設定
+        jst = pytz.timezone('Asia/Tokyo')
+        # UTC形式で受け取ったデータをJSTに変換
+# UTC形式で受け取った日時データをJSTに変換する関数
+        def convert_utc_to_jst(utc_datetime_str):
+            utc_datetime = datetime.strptime(utc_datetime_str, "%a, %d %b %Y %H:%M:%S %Z")
+            utc_datetime = utc_datetime.replace(tzinfo=timezone.utc)
+            return utc_datetime.astimezone(jst)
         def get_free_times():
             """
             デスクトップアプリからバックエンドに期間を送信し、空き時間を取得する。
@@ -1278,7 +1301,10 @@ def open_main_app():
                     if response.status_code == 200:
                         free_times = response.json().get('free_times')
                         print(f'Free times: {free_times}')
-                        return free_times
+                                        # JSTに変換
+                        free_times_jst = [(convert_utc_to_jst(start), convert_utc_to_jst(end)) for start, end in free_times]
+                        print(f'Free times (JST): {free_times_jst}')
+                        return free_times_jst
                     else:
                         print(f"Error: {response.json().get('error')}")
                         return None
@@ -1351,8 +1377,7 @@ def open_main_app():
 
         #     return free_times
 
-            # タイムゾーンを設定
-        jst = pytz.timezone('Asia/Tokyo')
+
 
         # 選択された時間帯を毎日の範囲に合わせて日付を補完
         def combine_time_with_date(time_str, base_date):
@@ -1360,16 +1385,20 @@ def open_main_app():
             naive_datetime = datetime.combine(base_date, time)
             return jst.localize(naive_datetime)
         
-        #ユーザが設定した条件(時間帯・最低タスク時間)での実際のタスク予定時間。
         def compare_time_ranges(selected_ranges, free_times, min_duration):
             task_times = []
-            min_duration = get_selected_min_duration()
-            
-        # min_durationをtimedeltaに変換
             min_duration_td = timedelta(minutes=min_duration)
+
+            # free_times内の文字列をdatetimeオブジェクトに変換
+            parsed_free_times = []
+            for start_dt, end_dt in free_times:
+               
+                # タイムゾーン情報を付加（JSTに設定）
+           
+                parsed_free_times.append((start_dt, end_dt))
+
             # 各選択された時間帯について処理
-            for free_start, free_end in free_times:
-                # 空いている時間の開始日を基準日として使用
+            for free_start, free_end in parsed_free_times:
                 current_date = free_start.date()
                 next_date = current_date + timedelta(days=1)
 
@@ -1378,7 +1407,6 @@ def open_main_app():
                     selected_start_today = combine_time_with_date(selected_start_str, current_date)
                     selected_end_today = combine_time_with_date(selected_end_str, current_date)
 
-                    # 翌日の選択された時間帯を補完
                     selected_start_tomorrow = combine_time_with_date(selected_start_str, next_date)
                     selected_end_tomorrow = combine_time_with_date(selected_end_str, next_date)
 
@@ -1387,14 +1415,14 @@ def open_main_app():
                         task_start = max(selected_start_today, free_start)
                         task_end = min(selected_end_today, free_end)
                         if task_end - task_start >= min_duration_td:
-                         task_times.append((task_start, task_end))
+                            task_times.append((task_start, task_end))
 
                     # 翌日の日付での重なりを確認
                     if selected_start_tomorrow < free_end and selected_end_tomorrow > free_start:
                         task_start = max(selected_start_tomorrow, free_start)
                         task_end = min(selected_end_tomorrow, free_end)
                         if task_end - task_start >= min_duration_td:
-                         task_times.append((task_start, task_end))
+                            task_times.append((task_start, task_end))
 
             return task_times
         
@@ -1481,9 +1509,11 @@ def open_main_app():
             selected_ranges = get_selected_time_ranges()
             min_duration = get_selected_min_duration()
             task_times = compare_time_ranges(selected_ranges, free_times, min_duration)
-
+            print(f'task_times:{task_times}')
             # 空き時間の合計を計算
             total_free_time_minutes = sum((end - start).total_seconds() / 60 for start, end in task_times)
+            
+            print(f'totalfreeminutes:{total_free_time_minutes}')
             total_free_time_formatted = format_duration(total_free_time_minutes)
 
             # タスク時間をパーセンテージに変換

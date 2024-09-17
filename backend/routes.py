@@ -125,36 +125,56 @@ def logout():
 def add_task():
     data = request.json
     task_name = data.get('task_name')
-
+    print
     if not task_name:
         return jsonify({"error": "Task name is required"}), 400
-
+    print(f'data:{data}')
     task_uuid = str(uuid.uuid4())
+        # リクエストのクッキーやヘッダーからセッションIDを取得
+    username = session.get('username')
+    # session_id = request.headers.get('Authorization')  # ヘッダーから取得する場合
+    print(f'username:{username}')
+    if not username:
+        return jsonify({"error": "セッションIDが提供されていません"}), 400
+
+    # セッションIDに基づいてユーザーを検索
+    user = db.query(User).filter_by(username=username).first()
+        # ユーザー情報のデバッグ出力
+    print(f'user_id: {user.id}')
+    print(f'username: {user.username}')
+    if not user:
+        return jsonify({"error": "無効なセッションIDです"}), 401
 
     try:
-        new_task = TaskInfo(task_uuid=task_uuid, task_name=task_name)
+        new_task = TaskInfo(task_uuid=task_uuid, task_name=task_name, user_id=user.id)
+        print(f'new_task: {new_task}')
         db.add(new_task)
         db.commit()
+                # デバッグ用にデータベースから追加したタスクを再度取得
+        saved_task = db.query(TaskInfo).filter_by(task_uuid=task_uuid).first()
+        print(f'saved_task: id={saved_task.id}, task_uuid={saved_task.task_uuid}, task_name={saved_task.task_name}, user_id={saved_task.user_id}')
+
         return jsonify({"message": "Task added successfully", "task_uuid": task_uuid}), 201
     except Exception as e:
         db.rollback()
         return jsonify({"error": str(e)}), 500
     finally:
         db.close()
-        
+
 @main.route('/get_tasks_without_conditions', methods=['GET'])
 def get_tasks_without_conditions():
     try:
-        # リクエストのクッキーやヘッダーからセッションIDを取得
-        session_id = request.cookies.get('session_id')  # クッキーから取得する場合
+            # リクエストのクッキーやヘッダーからセッションIDを取得
+        username = session.get('username')
         # session_id = request.headers.get('Authorization')  # ヘッダーから取得する場合
-
-        if not session_id:
+        print(f'username:{username}')
+        if not username:
             return jsonify({"error": "セッションIDが提供されていません"}), 400
 
         # セッションIDに基づいてユーザーを検索
-        user = db.query(User).filter_by(session_id=session_id).first()
-
+        user = db.query(User).filter_by(username=username).first()
+        print(f'user_id: {user.id}')
+        print(f'username: {user.username}')
         if not user:
             return jsonify({"error": "無効なセッションIDです"}), 401
 
@@ -164,7 +184,7 @@ def get_tasks_without_conditions():
 
         # 必要なデータをリストに整形
         task_list = [{'task_uuid': task.task_uuid, 'task_name': task.task_name} for task in tasks]
-        
+        print(f'task_list: {task_list}')
         return jsonify(task_list), 200
 
     except Exception as e:
@@ -177,16 +197,26 @@ def get_tasks_without_conditions():
 def delete_todo_task():
     data = request.get_json()
     task_uuid = data.get('task_uuid')
-
+    
     if not task_uuid:
         return jsonify({"error": "task_uuid is required"}), 400
 
+    # リクエストのセッションからユーザー名を取得
+    username = session.get('username')
+    if not username:
+        return jsonify({"error": "セッションIDが提供されていません"}), 400
+
+    # ユーザー名に基づいてユーザーを検索
+    user = db.query(User).filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "無効なセッションIDです"}), 401
+
     try:
-        # task_infoからタスクを削除
-        task = db.query(TaskInfo).filter_by(task_uuid=task_uuid).first()
+        # ユーザーIDに紐づくタスクを取得
+        task = db.query(TaskInfo).filter_by(task_uuid=task_uuid, user_id=user.id).first()
 
         if not task:
-            return jsonify({"error": "Task not found"}), 404
+            return jsonify({"error": "Task not found or you do not have permission to delete this task"}), 404
 
         # 関連するtask_conditionsやevent_mappingsも削除する場合
         db.query(TaskConditions).filter_by(task_uuid=task_uuid).delete()
@@ -220,7 +250,11 @@ def get_free_times():
         # セッションからユーザー名とパスワードを取得
         username = session.get('username')
         print(f'username:{username}')
-
+            # ユーザー名に基づいてユーザーを検索
+        user = db.query(User).filter_by(username=username).first()
+        if not user:
+           return jsonify({"error": "無効なセッションIDです"}), 401
+        
         # Google Calendar APIを使ってイベントを取得
         free_times = calculate_free_times(start_date, end_date, calendar_id)
         print(f'free_times_backend:{free_times}')
