@@ -1385,6 +1385,7 @@ def open_main_app():
             naive_datetime = datetime.combine(base_date, time)
             return jst.localize(naive_datetime)
         
+        #ユーザが選択した時間帯と最低タスク時間の条件を、空き時間と比較してタスクを実際に入れられる時間帯を算出する。
         def compare_time_ranges(selected_ranges, free_times, min_duration):
             task_times = []
             min_duration_td = timedelta(minutes=min_duration)
@@ -1551,80 +1552,86 @@ def open_main_app():
         select_button = ctk.CTkButton(event_window, text="空き時間検索", command=on_check_button_click)
         select_button.grid(row=10, column=0, pady=20)
 
-
         def add_events_to_google_calendar(service, filled_task_times, task_name, task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration):
             """Google Calendarに複数のイベントを追加し、同じUUIDでイベントIDをマッピングします。"""
-            print(f"start_date: {start_date}")
-            print(f"end_date: {end_date}")
-            print(f"selected_time_range: {selected_time_range}")
-            # タスク条件を保存
-            save_task_conditions(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration)
-            for start_time, end_time in filled_task_times:
-                event = {
-                    'summary': task_name,
-                    'start': {
-                        'dateTime': start_time.isoformat(),
-                        'timeZone': 'Asia/Tokyo',
-                    },
-                    'end': {
-                        'dateTime': end_time.isoformat(),
-                        'timeZone': 'Asia/Tokyo',
-                    },
-                    'colorId': str(selected_priority),  # イベントの色を設定
-                }
-                try:
-                    event_result = service.events().insert(calendarId="primary", body=event).execute()
-                    event_id = event_result.get('id')
-                    event_summary = event_result.get('summary')
-                    event_start = event_result['start'].get('dateTime', event_result['start'].get('date'))
-                    event_end = event_result['end'].get('dateTime', event_result['end'].get('date'))
-                    # UUIDとイベントIDおよび詳細をデータベースに保存
-                    save_uuid_event_id_mapping(task_uuid, event_id, event_summary, event_start, event_end)
-                    print(f"Event created: {event_result['htmlLink']}")
-                    print(f"Event details saved: {event_summary}, {event_start} - {event_end}")
-                except HttpError as error:
-                    print(f'An error occurred: {error}')
-
-        def save_uuid_event_id_mapping(uuid, event_id, event_summary, event_start, event_end):
-            # SQLiteデータベースに接続
-            conn = sqlite3.connect('resource_manager.db')
-            cursor = conn.cursor()
-
-            # 新しいカラムに対応してデータを挿入
-            cursor.execute('''
-            INSERT INTO event_mappings (task_uuid, event_id, summary, start_time, end_time)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (uuid, event_id, event_summary, event_start, event_end))
-
-            # 変更を保存して接続を閉じます
-            conn.commit()
-            conn.close()
-
-        def save_task_conditions(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration,):
-            """タスクの条件をデータベースに保存します。"""
-            conn = sqlite3.connect('resource_manager.db')
-            cursor = conn.cursor()
-            print("Saving task conditions:")
-            print(f"task_uuid: {task_uuid}")
-            print(f"start_date: {start_date}")
             
-            print(f"end_date: {end_date}")
-            # selected_time_rangeを文字列形式に変換
-            time_range_str = ', '.join([f"{start}-{end}" for start, end in selected_time_range])
-        # 保存するデータの内容を表示
-        
-            print(f"selected_time_range: {time_range_str}")
-            print(f"selected_priority: {selected_priority}")
-            print(f"min_duration: {min_duration}")
-            print(f"min_duration: {task_duration}")
-            # task_conditions テーブルにデータを挿入
-            cursor.execute('''
-                INSERT OR REPLACE INTO task_conditions (task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (task_uuid, task_duration, start_date, end_date, time_range_str, selected_priority, min_duration))
+            # タスク条件を保存（アプリ側のローカルではなくサーバへ送信する準備）
+            save_task_conditions_to_server(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration)
 
-            conn.commit()
-            conn.close()
+            events_data = []
+            for start_time, end_time in filled_task_times:
+                event_data = {
+                    'task_name': task_name,
+                    'task_uuid': task_uuid,
+                    'start_time': start_time.isoformat(),
+                    'end_time': end_time.isoformat(),
+                    'selected_priority': selected_priority,
+                }
+                events_data.append(event_data)
+                
+            # サーバへのPOSTリクエスト
+            url = 'http://127.0.0.1:5000/add_event_to_google_calendar'
+            try:
+                cookies = load_cookies()        
+                session = requests.Session()
+                session.cookies.update(cookies)
+                response = session.post(url, json={'events': events_data})
+                if response.status_code == 200:
+                    print("Events successfully created on Google Calendar via server.")
+                    print(f"Server response: {response.json()}")
+                else:
+                    print(f"Failed to create events: {response.text}")
+            except requests.RequestException as e:
+                print(f"Request error: {e}")
+
+        def save_task_conditions_to_server(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration):
+            """サーバにタスク条件を保存"""
+            url = 'http://127.0.0.1:5000/save_task_conditions'
+            time_range_str = ', '.join([f"{start}-{end}" for start, end in selected_time_range])
+            data = {
+                'task_uuid': task_uuid,
+                'task_duration': task_duration,
+                'start_date': start_date,
+                'end_date': end_date,
+                'selected_time_range': time_range_str,
+                'selected_priority': selected_priority,
+                'min_duration': min_duration
+            }
+
+            try:
+                cookies = load_cookies()        
+                session = requests.Session()
+                session.cookies.update(cookies)
+                response = session.post(url, json=data)
+                if response.status_code == 200:
+                    print("Task conditions saved to server.")
+                else:
+                    print(f"Failed to save task conditions: {response.text}")
+            except requests.RequestException as e:
+                print(f"Request error: {e}")
+
+        def save_event_to_server(task_uuid, event_id, event_summary, event_start, event_end):
+            """サーバにUUIDとイベントIDおよび詳細を保存"""
+            url = 'http://127.0.0.1:5000/save_event_mapping'
+            data = {
+                'task_uuid': task_uuid,
+                'event_id': event_id,
+                'event_summary': event_summary,
+                'event_start': event_start,
+                'event_end': event_end
+            }
+
+            try:
+                cookies = load_cookies()        
+                session = requests.Session()
+                session.cookies.update(cookies)
+                response = session.post(url, json=data)
+                if response.status_code == 200:
+                    print("Event details saved to server.")
+                else:
+                    print(f"Failed to save event: {response.text}")
+            except requests.RequestException as e:
+                print(f"Request error: {e}")
 
 
         def fill_available_time(task_times, task_duration_minutes):
