@@ -1552,42 +1552,13 @@ def open_main_app():
         select_button = ctk.CTkButton(event_window, text="空き時間検索", command=on_check_button_click)
         select_button.grid(row=10, column=0, pady=20)
 
-        def add_events_to_google_calendar(service, filled_task_times, task_name, task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration):
-            """Google Calendarに複数のイベントを追加し、同じUUIDでイベントIDをマッピングします。"""
+        def add_events_to_google_calendar(filled_task_times, task_name, task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration):
+            """Google Calendarに複数のイベントを追加し、タスク条件と一緒にサーバへ送信します。"""
             
-            # タスク条件を保存（アプリ側のローカルではなくサーバへ送信する準備）
-            save_task_conditions_to_server(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration)
-
-            events_data = []
-            for start_time, end_time in filled_task_times:
-                event_data = {
-                    'task_name': task_name,
-                    'task_uuid': task_uuid,
-                    'start_time': start_time.isoformat(),
-                    'end_time': end_time.isoformat(),
-                    'selected_priority': selected_priority,
-                }
-                events_data.append(event_data)
-                
-            # サーバへのPOSTリクエスト
-            url = 'http://127.0.0.1:5000/add_event_to_google_calendar'
-            try:
-                cookies = load_cookies()        
-                session = requests.Session()
-                session.cookies.update(cookies)
-                response = session.post(url, json={'events': events_data})
-                if response.status_code == 200:
-                    print("Events successfully created on Google Calendar via server.")
-                    print(f"Server response: {response.json()}")
-                else:
-                    print(f"Failed to create events: {response.text}")
-            except requests.RequestException as e:
-                print(f"Request error: {e}")
-
-        def save_task_conditions_to_server(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration):
-            """サーバにタスク条件を保存"""
-            url = 'http://127.0.0.1:5000/save_task_conditions'
+            # selected_time_rangeを文字列形式に変換
             time_range_str = ', '.join([f"{start}-{end}" for start, end in selected_time_range])
+            
+            # イベントデータとタスク条件をまとめたデータ
             data = {
                 'task_uuid': task_uuid,
                 'task_duration': task_duration,
@@ -1595,18 +1566,32 @@ def open_main_app():
                 'end_date': end_date,
                 'selected_time_range': time_range_str,
                 'selected_priority': selected_priority,
-                'min_duration': min_duration
+                'min_duration': min_duration,
+                'events': []
             }
 
+            # イベントデータを追加
+            for start_time, end_time in filled_task_times:
+                event_data = {
+                    'task_name': task_name,
+                    'start_time': start_time.isoformat(),
+                    'end_time': end_time.isoformat(),
+                    'selected_priority': selected_priority,
+                }
+                data['events'].append(event_data)
+            
+            # サーバへのPOSTリクエスト
+            url = 'http://127.0.0.1:5000/add_events_and_task_conditions'
             try:
                 cookies = load_cookies()        
                 session = requests.Session()
                 session.cookies.update(cookies)
                 response = session.post(url, json=data)
                 if response.status_code == 200:
-                    print("Task conditions saved to server.")
+                    print("Task conditions and events successfully sent to server.")
+                    print(f"Server response: {response.json()}")
                 else:
-                    print(f"Failed to save task conditions: {response.text}")
+                    print(f"Failed to save task conditions and events: {response.text}")
             except requests.RequestException as e:
                 print(f"Request error: {e}")
 
@@ -1664,7 +1649,7 @@ def open_main_app():
                 return []          
             
         def on_insert_button_click():
-            service = get_calendar_service()
+        
             # 選択されたタスクの名前とUUIDがある場合のみ実行
             if schedule_manager.selected_task_name and schedule_manager.selected_task_uuid:
                 free_times = get_free_times()
@@ -1680,7 +1665,7 @@ def open_main_app():
                 filled_task_times = fill_available_time(task_times, task_duration)
                 if filled_task_times:
                     add_events_to_google_calendar(
-                        service,
+                       
                         filled_task_times,
                         schedule_manager.selected_task_name,
                         schedule_manager.selected_task_uuid,
@@ -1691,7 +1676,7 @@ def open_main_app():
                         selected_priority,
                         min_duration
                     )
-                    update_todo_listbox(todo_listbox, schedule_manager)
+                    update_todo_listbox(todo_listbox)
                     update_schedule_listbox(schedule_listbox, schedule_manager)
             else:
                 print("タスクが選択されていません")
