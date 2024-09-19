@@ -260,23 +260,32 @@ def get_free_times():
         print(f'free_times_backend:{free_times}')
         return jsonify({"free_times": free_times}), 200
 
-@main.route('/add_event_to_google_calendar', methods=['POST'])
-def add_event_to_google_calendar():
+
+
+@main.route('/add_events_and_task_conditions', methods=['POST'])
+def add_events_and_task_conditions():
     data = request.json
-    events = data.get('events')
+    task_uuid = data['task_uuid']
+    task_duration = data['task_duration']
+    start_date = data['start_date']
+    end_date = data['end_date']
+    selected_time_range = data['selected_time_range']
+    selected_priority = data['selected_priority']
+    min_duration = data['min_duration']
+    events = data['events']
 
-
+    # 1. タスク条件を保存
+    save_task_conditions(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration)
     service = get_calendar_service()
 
-    event_results = []
+    # 2. 各イベントをGoogle Calendarに追加
     for event_data in events:
-        task_name = event_data.get('task_name')
-        task_uuid = event_data.get('task_uuid')
-        start_time = event_data.get('start_time')
-        end_time = event_data.get('end_time')
-        selected_priority = event_data.get('selected_priority')
-
-        # Googleカレンダーにイベントを作成
+        task_name = event_data['task_name']
+        start_time = event_data['start_time']
+        end_time = event_data['end_time']
+        selected_priority = event_data['selected_priority']
+        
+                # Googleカレンダーにイベントを作成
         event = {
             'summary': task_name,
             'start': {
@@ -289,7 +298,6 @@ def add_event_to_google_calendar():
             },
             'colorId': str(selected_priority),
         }
-
         try:
             event_result = service.events().insert(calendarId='primary', body=event).execute()
             event_id = event_result.get('id')
@@ -311,6 +319,7 @@ def add_event_to_google_calendar():
 
     return jsonify({"events": event_results}), 200
 
+
 def save_event_mapping(task_uuid, event_id, event_summary, event_start, event_end):
 
         # セッションからユーザー名とパスワードを取得
@@ -329,7 +338,6 @@ def save_event_mapping(task_uuid, event_id, event_summary, event_start, event_en
                 # デバッグ用にデータベースから追加したタスクを再度取得
         saved_event = db.query(EventMappings).filter_by(task_uuid=task_uuid).first()
         print(f'saved_task: id={saved_event.id}, task_uuid={saved_event.task_uuid}, start_time={saved_event.start_time}, user_id={saved_event.user_id}')
-
         return jsonify({"message": "Task added successfully", "task_uuid": task_uuid}), 201
     except Exception as e:
         db.rollback()
@@ -337,16 +345,8 @@ def save_event_mapping(task_uuid, event_id, event_summary, event_start, event_en
     finally:
         db.close()
 
-@main.route('/save_task_conditions', methods=['POST'])
-def save_task_conditions():
-    data = request.json
-    task_uuid = data.get('task_uuid')
-    task_duration = data.get('task_duration')
-    start_date = data.get('start_date')
-    end_date = data.get('end_date')
-    selected_time_range = data.get('selected_time_range')
-    selected_priority = data.get('selected_priority')
-    min_duration = data.get('min_duration')
+def save_task_conditions(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration):
+        # セッションからユーザー名とパスワードを取得
         # セッションからユーザー名とパスワードを取得
     username = session.get('username')
     print(f'username:{username}')
