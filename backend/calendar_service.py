@@ -35,15 +35,18 @@ def get_credentials():
     
     # データベースからユーザーのトークン情報を取得
     token = db.query(Token).filter_by(user_id=user.id).first()
+    print(f'Token loaded: {token}')
     
     if token and token.access_token:
         try:
             creds = pickle.loads(token.access_token)  # `creds` は Credentials オブジェクトである必要があります
-            print(f'creds: {creds}')
+            print(f'Loaded creds from token: {creds}')
             if creds and creds.valid:
                 return creds
             elif creds and creds.expired and creds.refresh_token:
+                print("Refreshing credentials...")
                 creds.refresh(Request())
+                print(f"New expiry time: {creds.expiry}")
                 # 更新したトークンを保存
                 token.access_token = pickle.dumps(creds)  # `creds` オブジェクト全体を保存
                 token.refresh_token = pickle.dumps(creds.refresh_token) if creds.refresh_token else None
