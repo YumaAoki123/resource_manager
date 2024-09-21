@@ -23,21 +23,21 @@ class User(Base):
     # Tokenとの一対一のリレーションシップ
     token = relationship("Token", back_populates="user", uselist=False)
 
-# Tokenテーブルの定義
 class Token(Base):
     __tablename__ = 'tokens'
     
     id = Column(Integer, primary_key=True)
     # 外部キーとしてUserテーブルのidを指定
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    access_token = Column(LargeBinary, nullable=False)
-    refresh_token = Column(LargeBinary, nullable=True)
-    expiry = Column(DateTime, nullable=True)  # 確認・修正する部分
+    
+    # credsオブジェクト全体を保存するフィールド
+    token = Column(LargeBinary, nullable=False)  # ここで、pickleされたcredsオブジェクトを保存
+    
     created_at = Column(DateTime, default=datetime.now(timezone.utc))  # トークン作成日時
-
 
     # Userとのリレーションシップ
     user = relationship("User", back_populates="token")
+
 
 # タスク情報テーブルの定義
 class TaskInfo(Base):
