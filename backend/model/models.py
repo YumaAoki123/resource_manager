@@ -31,7 +31,7 @@ class Token(Base):
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     
     # credsオブジェクト全体を保存するフィールド
-    token = Column(LargeBinary, nullable=False)  # ここで、pickleされたcredsオブジェクトを保存
+    google_creds = Column(LargeBinary, nullable=False)  # ここで、pickleされたcredsオブジェクトを保存
     
     created_at = Column(DateTime, default=datetime.now(timezone.utc))  # トークン作成日時
 
