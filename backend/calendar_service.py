@@ -29,19 +29,23 @@ def get_credentials():
     user = db.query(User).filter_by(username=username).first()
     if not user:
         raise ValueError(f"User with username {username} does not exist.")
-    
+    print(f'user:{user}')
     # データベースからユーザーのトークン情報を取得
     token = db.query(Token).filter_by(user_id=user.id).first()
-    
-    if token and token.token:
+    print(f'token:{token}')
+   
+    if token and token.google_creds:
         try:
-            creds = pickle.loads(token.token)  # `creds` オブジェクト全体を読み込む
+            creds = pickle.loads(token.google_creds)  # `creds` オブジェクト全体を読み込む
+            print("Deserialized Credentials:", creds)
+            print("Type of Credentials:", type(creds))  # データ型の確
             if creds and creds.valid:
+
                 return creds
             elif creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
                 # 更新したトークンを保存
-                token.token = pickle.dumps(creds)  # `creds` オブジェクト全体を保存
+                token.google_creds = pickle.dumps(creds)  # `creds` オブジェクト全体を保存
                 db.commit()
                 return creds
         except Exception as e:
@@ -55,7 +59,7 @@ def get_credentials():
     # 新しいトークンをデータベースに保存
     new_token = Token(
         user_id=user.id,
-        token=pickle.dumps(creds),  # `creds` オブジェクト全体を保存
+        google_creds=pickle.dumps(creds),  # `creds` オブジェクト全体を保存
     )
     db.add(new_token)
     db.commit()
