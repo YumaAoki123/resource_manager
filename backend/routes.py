@@ -24,6 +24,7 @@ from googleapiclient.errors import HttpError
 from requests_oauthlib import OAuth2Session
 from flask import make_response
 import flask_session
+import jwt
 # クライアントIDとクライアントシークレットを環境変数から取得する
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # HTTPSを強制しないようにする（ローカル開発用）
 client_id = os.environ['GOOGLE_CLIENT_ID']
@@ -371,7 +372,38 @@ def save_task_conditions(task_uuid, task_duration, start_date, end_date, selecte
     finally:
         db.close()
 
+# JWTトークンの生成
+def create_token(user_id):
+    payload = {
+        'user_id': user_id,
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=30)  # トークン有効期限
+    }
+    token = jwt.encode(payload, main.secret_key, algorithm='HS256')
+    return token
 
+# トークンのデコード（検証）
+def verify_token(token):
+    try:
+        payload = jwt.decode(token, main.secret_key, algorithms=['HS256'])
+        return payload['user_id']
+    except jwt.ExpiredSignatureError:
+        return None
+
+# ログイン処理
+@main.route('/login', methods=['POST'])
+def login():
+    user_id = request.json.get('user_id')
+    token = create_token(user_id)
+    return jsonify({'token': token})
+
+# 保護されたルート
+@main.route('/dashboard', methods=['GET'])
+def dashboard():
+    token = request.headers.get('Authorization').split(' ')[1]  # Bearer トークンの取り出し
+    user_id = verify_token(token)
+    if user_id:
+        return f'Hello, {user_id}!'
+    return jsonify({'error': 'Unauthorized'}), 401
 # @main.route('/submit-tasks', methods=['POST'])
 # def submit_tasks():
 #     data = request.get_json()
