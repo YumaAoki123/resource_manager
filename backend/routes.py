@@ -382,28 +382,40 @@ def create_token(user_id):
     return token
 
 # トークンのデコード（検証）
-def verify_token(token):
+def verify_jwt(token):
     try:
         payload = jwt.decode(token, main.secret_key, algorithms=['HS256'])
         return payload['user_id']
     except jwt.ExpiredSignatureError:
         return None
 
-# ログイン処理
 @main.route('/login', methods=['POST'])
 def login():
-    user_id = request.json.get('user_id')
-    token = create_token(user_id)
-    return jsonify({'token': token})
+    data = request.get_json()
+    username = data['username']
+    password = data['password']
+    
+    # ユーザーをデータベースから取得
+    user = User.query.filter_by(username=username).first()
+    
+    if user and check_password_hash(user.password, password):
+        # JWTトークンを生成
+        token = create_token(user.id)
+        return jsonify({'token': token}), 200
+    else:
+        return jsonify({'message': 'Invalid credentials'}), 401
 
-# 保護されたルート
-@main.route('/dashboard', methods=['GET'])
-def dashboard():
-    token = request.headers.get('Authorization').split(' ')[1]  # Bearer トークンの取り出し
-    user_id = verify_token(token)
-    if user_id:
-        return f'Hello, {user_id}!'
-    return jsonify({'error': 'Unauthorized'}), 401
+# 保護されたエンドポイント
+@main.route('/protected', methods=['GET'])
+def protected():
+    auth_header = request.headers.get('Authorization')
+    if auth_header:
+        token = auth_header.split(" ")[1]  # "Bearer <token>" からトークン部分を取り出す
+        user_id = verify_jwt(token)
+        if user_id:
+            return jsonify({'message': f'Hello, user {user_id}!'})
+    return jsonify({'message': 'Unauthorized'}), 401
+
 # @main.route('/submit-tasks', methods=['POST'])
 # def submit_tasks():
 #     data = request.get_json()
