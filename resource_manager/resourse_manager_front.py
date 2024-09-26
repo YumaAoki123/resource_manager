@@ -161,15 +161,15 @@ def login_user(username, password, remember_me, login_window, username_entry, pa
             'username': username,
             'password': password
         }
-        print(f'logindata: {login_data}')
+        print(f'logindata: { login_data}')
         try:
             session = requests.Session()
             response = session.post(login_url, json=login_data)
-
+            jwt_token = response.json().get('token')
             if response.status_code == 200:
                 print("ログイン成功")
                 if remember_me:
-                    save_cookies(session.cookies.get_dict()) 
+                    save_jwt(jwt_token) 
                 open_main_app()  # メインアプリケーションを開く    
                 login_window.destroy()    
 
@@ -224,18 +224,16 @@ def register_user(username, password, signup_window, username_entry, password_en
         }
         
         try:
-            # セッションを使用してサーバーと通信
-            session = requests.Session()
-            response = session.post(register_url, json=register_data)
+   
+            response = requests.post(register_url, json=register_data)
             print(f'response: {response}')
 
             # レスポンスが成功した場合
             if response.status_code == 201:
-                print("ユーザー登録成功")
-                print("クッキー:", session.cookies.get_dict())  # クッキーを確認するための出力
+                jwt_token = response.json().get('token')
                 
                 # クッキーをファイルに保存
-                save_cookies(session.cookies.get_dict())  # クッキーを保存
+                save_jwt(jwt_token)  # クッキーを保存
                 open_main_app()
                 signup_window.destroy()
             elif response.status_code == 409:
@@ -248,9 +246,9 @@ def register_user(username, password, signup_window, username_entry, password_en
             print(f"リクエストエラー: {e}")
             messagebox.showerror("Error", f"リクエストエラー: {e}")
 
-def save_cookies(cookies):
-    with open('cookies.json', 'w') as file:
-        json.dump(cookies, file)
+def save_jwt(jwt_token):
+    with open('jwt.json', 'w') as file:
+        json.dump(jwt_token, file)
 
 def load_cookies():
     if os.path.exists('cookies.json'):

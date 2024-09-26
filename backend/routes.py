@@ -7,7 +7,7 @@ from model.models import Base, User, db, TaskInfo, TaskConditions, EventMappings
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 # calendar_service.py
 from googleapiclient.discovery import build
@@ -46,6 +46,14 @@ def home():
 
     return 'Welcome to the home page'
 
+# JWTトークンを生成する関数
+def generate_jwt_token(user_id):
+    payload = {
+        'user_id': user_id,
+        'exp': datetime.now() + timedelta(hours=24)  # トークンの有効期限
+    }
+    token = jwt.encode(payload, main.secret_key, algorithm='HS256')
+    return token
 
 # ユーザー登録
 @main.route('/register', methods=['POST'])
@@ -62,37 +70,17 @@ def register():
         # データベースに新しいユーザーを追加
         db.add(new_user)
         db.commit()
-
-        # ユーザー登録が成功したらクッキーを設定してセッションを開始
-        session['username'] = username  # クッキーに保存するデータ
-        return jsonify({"message": "User registered successfully!"}), 201
+        # JWTトークンを生成して返す
+        token = generate_jwt_token(new_user.id)
+        return jsonify({
+        'message': 'User registered successfully',
+        'token': token  # JWTトークンも同時に返す
+    }), 201
     except IntegrityError:
         db.rollback()
         return jsonify({"error": "Username already exists"}), 409
 
-@main.route('/login', methods=['POST'])
-def login():
-    data = request.get_json()
-    username = data.get('username')
-    password = data.get('password')
-     # デバッグログを追加して、入力されたユーザー名を確認
-    print(f"Received username: {username}")
-    user = db.query(User).filter_by(username=username).first()
 
-    if user is None:
-        # デバッグ用のメッセージを表示
-        print("ユーザーがデータベースに存在しません")
-        return jsonify({"error": "User not found"}), 404
-
-    # デバッグログを追加して、ユーザーのパスワードハッシュを確認
-    print(f"User found in DB: {user.username}, Password hash: {user.password}")
-
-    if user and check_password_hash(user.password, password):
-        session['username'] = username
-        response = jsonify({"message": "Logged in successfully"})
-        return response, 200
-    else:
-        return jsonify({"error": "Invalid credentials"}), 401
 
 @main.route('/check_session', methods=['GET'])
 def check_session():
