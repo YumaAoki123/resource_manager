@@ -250,18 +250,23 @@ def save_jwt(jwt_token):
     with open('jwt.json', 'w') as file:
         json.dump(jwt_token, file)
 
-def load_cookies():
-    if os.path.exists('cookies.json'):
-        with open('cookies.json', 'r') as file:
+def load_jwt():
+    if os.path.exists('jwt.json'):
+        with open('jwt.json', 'r') as file:
             return json.load(file)
     return None
 
 def auto_login():
-    cookies = load_cookies()
-    if cookies:
-        session = requests.Session()
-        session.cookies.update(cookies)
-        response = session.get('http://127.0.0.1:5000/check_session')  # サーバーにセッション確認リクエスト
+    jwt = load_jwt()
+    if jwt:      
+        # HTTPヘッダーにJWTを含める
+        headers = {
+            'Authorization': f'Bearer {jwt}'
+}
+        # サーバーから条件のないタスクを取得
+        response = requests.get('http://127.0.0.1:5000/check_session', headers=headers
+        )
+        
         if response.status_code == 200:
             print("自動ログイン成功")
             return True
@@ -709,14 +714,15 @@ def open_main_app():
         # サーバーへのリクエスト
         try:
                        # セッションIDを読み込む
-            cookies = load_cookies()
+            jwt = load_jwt()
             
-            session = requests.Session()
-            session.cookies.update(cookies)
+            # HTTPヘッダーにJWTを含める
+            headers = {
+                'Authorization': f'Bearer {jwt}'
+}
             # サーバーから条件のないタスクを取得
-            response = session.post('http://127.0.0.1:5000/add_task', json={
-                'task_name': task_name
-            })
+            response = requests.post('http://127.0.0.1:5000/add_task', json=task_name, headers=headers
+            )
             if response.status_code == 201:
                 print("タスクが追加されました")
                 update_todo_listbox(todo_listbox)  # タスクリストの更新
@@ -879,12 +885,15 @@ def open_main_app():
         try:
          
             # セッションIDを読み込む
-            cookies = load_cookies()
+            jwt = load_jwt()
             
-            session = requests.Session()
-            session.cookies.update(cookies)
+        # HTTPヘッダーにJWTを含める
+            headers = {
+                'Authorization': f'Bearer {jwt}'
+}
             # サーバーから条件のないタスクを取得
-            response = session.get('http://127.0.0.1:5000/get_tasks_without_conditions')
+            response = requests.get('http://127.0.0.1:5000/get_tasks_without_conditions', headers=headers)
+           
             
             if response.status_code == 200:
                 tasks = response.json()
