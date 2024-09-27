@@ -1,4 +1,4 @@
-from flask import Blueprint,Flask, request, jsonify, session, redirect, url_for, render_template
+from flask import Blueprint,Flask, request, jsonify, session, redirect, url_for, render_template, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
 from email_service import create_form
 from calendar_service import calculate_free_times, get_credentials, get_calendar_service
@@ -25,6 +25,9 @@ from requests_oauthlib import OAuth2Session
 from flask import make_response
 import flask_session
 import jwt
+from functools import wraps
+
+
 # クライアントIDとクライアントシークレットを環境変数から取得する
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # HTTPSを強制しないようにする（ローカル開発用）
 client_id = os.environ['GOOGLE_CLIENT_ID']
@@ -52,7 +55,7 @@ def generate_jwt_token(user_id):
         'user_id': user_id,
         'exp': datetime.now() + timedelta(hours=24)  # トークンの有効期限
     }
-    token = jwt.encode(payload, main.secret_key, algorithm='HS256')
+    token = jwt.encode(payload, current_app.config['SECRET_KEY'], algorithm='HS256')
     return token
 
 # ユーザー登録
@@ -110,8 +113,32 @@ def logout():
     
     return response
 
+# トークンのデコード（検証）
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'Authorization' in request.headers:
+            token = request.headers['Authorization'].split(" ")[1]
+
+        if not token:
+            return jsonify({'message': 'Token is missing!'}), 401
+
+        try:
+            data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
+            current_user_id = data['user_id']
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token has expired!'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'message': 'Token is invalid!'}), 401
+
+        return f(current_user_id, *args, **kwargs)
+    
+    return decorated
+
 @main.route('/add_task', methods=['POST'])
-def add_task():
+@token_required  # JWTの検証を行う
+def add_task(f):
     data = request.json
     task_name = data.get('task_name')
     print
@@ -369,13 +396,8 @@ def create_token(user_id):
     token = jwt.encode(payload, main.secret_key, algorithm='HS256')
     return token
 
-# トークンのデコード（検証）
-def verify_jwt(token):
-    try:
-        payload = jwt.decode(token, main.secret_key, algorithms=['HS256'])
-        return payload['user_id']
-    except jwt.ExpiredSignatureError:
-        return None
+
+
 
 @main.route('/login', methods=['POST'])
 def login():
@@ -399,7 +421,7 @@ def protected():
     auth_header = request.headers.get('Authorization')
     if auth_header:
         token = auth_header.split(" ")[1]  # "Bearer <token>" からトークン部分を取り出す
-        user_id = verify_jwt(token)
+        user_id = token_required(token)
         if user_id:
             return jsonify({'message': f'Hello, user {user_id}!'})
     return jsonify({'message': 'Unauthorized'}), 401

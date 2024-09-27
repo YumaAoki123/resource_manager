@@ -19,7 +19,7 @@ def create_app():
     app.config['SESSION_SERIALIZATION_FORMAT'] = 'json'
     app.config['SESSION_COOKIE_NAME'] = 'session'
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(weeks=2)  # セッションの有効期限を1週間に設定
-
+    app.secret_key = os.environ.get('SECRET_KEY', 'default_secret_key') 
     # セッションを初期化
     Session(app)
     # Register blueprints
