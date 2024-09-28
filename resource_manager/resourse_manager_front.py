@@ -156,20 +156,32 @@ def validate_login_input(username, password, username_entry, password_entry):
 def login_user(username, password, remember_me, login_window, username_entry, password_entry):
     # 入力のバリデーションを実行し、成功した場合にのみログイン処理を行う
     if validate_login_input(username, password, username_entry, password_entry):
-        login_url = 'http://127.0.0.1:5000/login'
-        login_data = {
-            'username': username,
-            'password': password
-        }
-        print(f'logindata: { login_data}')
         try:
-            session = requests.Session()
-            response = session.post(login_url, json=login_data)
-            jwt_token = response.json().get('token')
+            # セッションIDを読み込む（JWTトークン）
+            jwt = load_jwt()
+            
+            # HTTPヘッダーにJWTを含める
+            headers = {
+                'Authorization': f'Bearer {jwt}'
+            }
+
+            login_data = {
+                'username': username,
+                'password': password
+            }
+            print(f'logindata: { login_data}')
+
+            # サーバーにPOSTリクエストを送信
+            response = requests.post(
+                'http://127.0.0.1:5000/login', 
+                json=login_data,  # タスク名を辞書形式で送信
+                headers=headers
+            )
+            
             if response.status_code == 200:
                 print("ログイン成功")
                 if remember_me:
-                    save_jwt(jwt_token) 
+                    save_jwt(jwt) 
                 open_main_app()  # メインアプリケーションを開く    
                 login_window.destroy()    
 
@@ -703,7 +715,6 @@ def open_main_app():
     #     window.mainloop()
 
 
-
     def add_task():
         task_name = task_entry.get()
         
@@ -713,24 +724,37 @@ def open_main_app():
 
         # サーバーへのリクエスト
         try:
-                       # セッションIDを読み込む
+            # セッションIDを読み込む（JWTトークン）
             jwt = load_jwt()
             
             # HTTPヘッダーにJWTを含める
             headers = {
                 'Authorization': f'Bearer {jwt}'
-}
-            # サーバーから条件のないタスクを取得
-            response = requests.post('http://127.0.0.1:5000/add_task', json=task_name, headers=headers
+            }
+
+            # タスク名を含むJSONデータを準備
+            data = {
+                'task_name': task_name
+            }
+
+            # サーバーにPOSTリクエストを送信
+            response = requests.post(
+                'http://127.0.0.1:5000/add_task', 
+                json=data,  # タスク名を辞書形式で送信
+                headers=headers
             )
+            
+            # ステータスコードが201（Created）なら成功
             if response.status_code == 201:
                 print("タスクが追加されました")
                 update_todo_listbox(todo_listbox)  # タスクリストの更新
                 task_entry.delete(0, ctk.END)  # 入力フィールドをクリア
             else:
                 print(f"エラー: {response.json().get('error')}")
+        
         except requests.RequestException as e:
             print(f"リクエストエラー: {e}")
+
 
 
     class ScheduleManager:
@@ -1084,11 +1108,19 @@ def open_main_app():
             
             # サーバーから条件のないタスクを取得
             try:
-                cookies = load_cookies()        
-                session = requests.Session()
-                session.cookies.update(cookies)
-                # サーバーから条件のないタスクを取得
-                response = session.get('http://127.0.0.1:5000/get_tasks_without_conditions')
+                            # セッションIDを読み込む（JWTトークン）
+                jwt = load_jwt()
+                
+                # HTTPヘッダーにJWTを含める
+                headers = {
+                    'Authorization': f'Bearer {jwt}'
+                }
+
+                # サーバーにPOSTリクエストを送信
+                response = requests.get(
+                    'http://127.0.0.1:5000/get_tasks_without_conditions', 
+                    headers=headers
+                )
                 if response.status_code == 200:
                     tasks = response.json()  # タスクのリストを取得
                     
@@ -1288,23 +1320,27 @@ def open_main_app():
             デスクトップアプリからバックエンドに期間を送信し、空き時間を取得する。
             """
             start_date, end_date = get_date_range()
-            cookies = load_cookies()
-            print(f'session?id:{cookies}')
-          
-
-            url = 'http://127.0.0.1:5000/get_free_times'  # バックエンドAPIのURL
-            data = {
-                "start_date": start_date,
-                "end_date": end_date,
-                "calendar_id": "primary"  # 必要に応じてカレンダーIDを変更
-            }
+            jwt = load_jwt()
             
-            if cookies:
+            # HTTPヘッダーにJWTを含める
+            headers = {
+                'Authorization': f'Bearer {jwt}'
+            }
+            data = {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "calendar_id": "primary"  # 必要に応じてカレンダーIDを変更
+             }
+
+            if jwt:
                 
                 try:
-                    session = requests.Session()
-                    session.cookies.update(cookies)
-                    response = session.post(url, json=data)
+                # サーバーにPOSTリクエストを送信
+                    response = requests.post(
+                    'http://127.0.0.1:5000/get_free_times', 
+                    json=data,
+                    headers=headers
+                )
                     if response.status_code == 200:
                         free_times = response.json().get('free_times')
                         print(f'Free times: {free_times}')
@@ -1974,9 +2010,9 @@ def open_main_app():
     user_information_frame = ctk.CTkFrame(notebook)
     notebook.add(user_information_frame, text="ユーザ情報")
 
-    cokkies = load_cookies()
+    jwt = load_jwt()
     
-    logout_button = ctk.CTkButton(user_information_frame, text="ログアウト", command=lambda:logout_user(cokkies))
+    logout_button = ctk.CTkButton(user_information_frame, text="ログアウト", command=lambda:logout_user(jwt))
     logout_button.grid(row=1, column=0, padx=10, pady=5, sticky="w")
     
 

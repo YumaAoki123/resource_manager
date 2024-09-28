@@ -138,23 +138,22 @@ def token_required(f):
 
 @main.route('/add_task', methods=['POST'])
 @token_required  # JWTの検証を行う
-def add_task(f):
-    data = request.json
+def add_task(user_id):
+
+    print(f'user_id:{user_id}')
+
+    data = request.get_json()
     task_name = data.get('task_name')
-    print
+    
     if not task_name:
         return jsonify({"error": "Task name is required"}), 400
     print(f'data:{data}')
     task_uuid = str(uuid.uuid4())
-        # リクエストのクッキーやヘッダーからセッションIDを取得
-    username = session.get('username')
-    # session_id = request.headers.get('Authorization')  # ヘッダーから取得する場合
-    print(f'username:{username}')
-    if not username:
-        return jsonify({"error": "セッションIDが提供されていません"}), 400
+  
 
-    # セッションIDに基づいてユーザーを検索
-    user = db.query(User).filter_by(username=username).first()
+
+    # ユーザーIDに基づいてユーザーを検索
+    user = db.query(User).filter_by(id=user_id).first()
         # ユーザー情報のデバッグ出力
     print(f'user_id: {user.id}')
     print(f'username: {user.username}')
@@ -178,17 +177,14 @@ def add_task(f):
         db.close()
 
 @main.route('/get_tasks_without_conditions', methods=['GET'])
-def get_tasks_without_conditions():
-    try:
-            # リクエストのクッキーやヘッダーからセッションIDを取得
-        username = session.get('username')
-        # session_id = request.headers.get('Authorization')  # ヘッダーから取得する場合
-        print(f'username:{username}')
-        if not username:
-            return jsonify({"error": "セッションIDが提供されていません"}), 400
+@token_required  # JWTの検証を行う
+def get_tasks_without_conditions(user_id):
+        # デコードされたJWTのペイロードからユーザーIDを取得
 
+    print(f'witout_condition_user_id:{user_id}')
+    try:
         # セッションIDに基づいてユーザーを検索
-        user = db.query(User).filter_by(username=username).first()
+        user = db.query(User).filter_by(id=user_id).first()
         print(f'user_id: {user.id}')
         print(f'username: {user.username}')
         if not user:
@@ -256,18 +252,17 @@ def favicon():
 
 # クライアントからのリクエストを受け取って、指定の期間の空き時間を取得
 @main.route("/get_free_times", methods=['POST'])
-def get_free_times():
+@token_required  # JWTの検証を行う
+def get_free_times(user_id):
+        print(f'freetime_user_id:{user_id}')
         data = request.get_json()
         start_date = data['start_date']
         end_date = data['end_date']
         calendar_id = data.get('calendar_id', 'primary')
         print(f'data:{data}')
-        
-        # セッションからユーザー名とパスワードを取得
-        username = session.get('username')
-        print(f'username:{username}')
+
             # ユーザー名に基づいてユーザーを検索
-        user = db.query(User).filter_by(username=username).first()
+        user = db.query(User).filter_by(id=user_id).first()
         if not user:
            return jsonify({"error": "無効なセッションIDです"}), 401
         
@@ -387,30 +382,21 @@ def save_task_conditions(task_uuid, task_duration, start_date, end_date, selecte
     finally:
         db.close()
 
-# JWTトークンの生成
-def create_token(user_id):
-    payload = {
-        'user_id': user_id,
-        'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=30)  # トークン有効期限
-    }
-    token = jwt.encode(payload, main.secret_key, algorithm='HS256')
-    return token
-
-
-
-
 @main.route('/login', methods=['POST'])
-def login():
+@token_required  # JWTの検証を行う
+def login(user_id):
+    print(f'login_user_id:{user_id}')
     data = request.get_json()
     username = data['username']
     password = data['password']
+
     
     # ユーザーをデータベースから取得
-    user = User.query.filter_by(username=username).first()
+    user = db.query(User).filter_by(id=user_id).first()
     
     if user and check_password_hash(user.password, password):
         # JWTトークンを生成
-        token = create_token(user.id)
+        token = generate_jwt_token(user.id)
         return jsonify({'token': token}), 200
     else:
         return jsonify({'message': 'Invalid credentials'}), 401
