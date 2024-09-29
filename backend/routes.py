@@ -43,11 +43,28 @@ token_url = 'https://accounts.google.com/o/oauth2/token'
 
 main = Blueprint('main', __name__)
 
-# ホームエンドポイント
-@main.route('/')
-def home():
+# トークンのデコード（検証）
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'Authorization' in request.headers:
+            token = request.headers['Authorization'].split(" ")[1]
 
-    return 'Welcome to the home page'
+        if not token:
+            return jsonify({'message': 'Token is missing!'}), 401
+
+        try:
+            data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
+            current_user_id = data['user_id']
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token has expired!'}), 401
+        except jwt.InvalidTokenError:
+            return jsonify({'message': 'Token is invalid!'}), 401
+
+        return f(current_user_id, *args, **kwargs)
+    
+    return decorated
 
 # JWTトークンを生成する関数
 def generate_jwt_token(user_id):
@@ -57,6 +74,14 @@ def generate_jwt_token(user_id):
     }
     token = jwt.encode(payload, current_app.config['SECRET_KEY'], algorithm='HS256')
     return token
+
+# ホームエンドポイント
+@main.route('/')
+def home():
+
+    return 'Welcome to the home page'
+
+
 
 # ユーザー登録
 @main.route('/register', methods=['POST'])
@@ -85,12 +110,21 @@ def register():
 
 
 
-@main.route('/check_session', methods=['GET'])
-def check_session():
-    if 'username' in session:
-        return jsonify({"message": "Logged in"}), 200
-    else:
-        return jsonify({"message": "Not logged in"}), 401
+@main.route('/auto_login', methods=['GET'])
+@token_required
+def auto_login(user_id):
+    # ユーザーIDに基づいてユーザーを検索
+    user = db.query(User).filter_by(id=user_id).first()
+    
+    if not user:
+        return jsonify({"error": "無効なセッションIDです"}), 401
+
+    # ユーザー情報のデバッグ出力
+    print(f'user_id: {user.id}')
+    print(f'username: {user.username}')
+
+    return jsonify({"message": "Logged in", "user_id": user.id, "username": user.username}), 200
+
     
 @main.route('/logout', methods=['POST'])
 def logout():
@@ -113,28 +147,7 @@ def logout():
     
     return response
 
-# トークンのデコード（検証）
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = None
-        if 'Authorization' in request.headers:
-            token = request.headers['Authorization'].split(" ")[1]
 
-        if not token:
-            return jsonify({'message': 'Token is missing!'}), 401
-
-        try:
-            data = jwt.decode(token, current_app.config['SECRET_KEY'], algorithms=["HS256"])
-            current_user_id = data['user_id']
-        except jwt.ExpiredSignatureError:
-            return jsonify({'message': 'Token has expired!'}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({'message': 'Token is invalid!'}), 401
-
-        return f(current_user_id, *args, **kwargs)
-    
-    return decorated
 
 @main.route('/add_task', methods=['POST'])
 @token_required  # JWTの検証を行う
