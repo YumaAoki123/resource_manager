@@ -276,7 +276,7 @@ def auto_login():
             'Authorization': f'Bearer {jwt}'
 }
         # サーバーから条件のないタスクを取得
-        response = requests.get('http://127.0.0.1:5000/check_session', headers=headers
+        response = requests.get('http://127.0.0.1:5000/auto_login', headers=headers
         )
         
         if response.status_code == 200:
