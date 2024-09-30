@@ -934,13 +934,14 @@ def open_main_app():
         
         if selected_task_index:
             try:
-                            # セッションIDを読み込む
-                cookies = load_cookies()
-                
-                session = requests.Session()
-                session.cookies.update(cookies)
+                jwt = load_jwt()           # セッションIDを読み込む
+                       # HTTPヘッダーにJWTを含める
+                headers = {
+                           'Authorization': f'Bearer {jwt}'
+                     }
+        
                 # サーバーから条件のないタスクを取得
-                response = session.get('http://127.0.0.1:5000/get_tasks_without_conditions')
+                response = requests.get('http://127.0.0.1:5000/get_tasks_without_conditions',headers=headers)
                 if response.status_code == 200:
                     tasks = response.json()
                     
@@ -950,8 +951,9 @@ def open_main_app():
                     task_uuid = selected_task['task_uuid']  # 正しいキーでtask_uuidを取得
                     
                     # APIエンドポイントに対してDELETEリクエストを送信
-                    delete_response = session.delete('http://127.0.0.1:5000/delete_todo_task',
-                                                    json={"task_uuid": task_uuid})
+                    delete_response = requests.delete('http://127.0.0.1:5000/delete_todo_task',
+                                                      headers=headers,
+                                                      json={"task_uuid": task_uuid})
 
                     if delete_response.status_code == 200:
                         print("Task deleted successfully!")
