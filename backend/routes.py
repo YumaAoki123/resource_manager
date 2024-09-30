@@ -219,26 +219,25 @@ def get_tasks_without_conditions(user_id):
         db.close()
 
 @main.route('/delete_todo_task', methods=['DELETE'])
-def delete_todo_task():
+@token_required
+def delete_todo_task(user_id):
     data = request.get_json()
     task_uuid = data.get('task_uuid')
     
     if not task_uuid:
         return jsonify({"error": "task_uuid is required"}), 400
 
-    # リクエストのセッションからユーザー名を取得
-    username = session.get('username')
-    if not username:
-        return jsonify({"error": "セッションIDが提供されていません"}), 400
+    if not user_id:
+        return jsonify({"error": "user_idが提供されていません"}), 400
 
     # ユーザー名に基づいてユーザーを検索
-    user = db.query(User).filter_by(username=username).first()
+    user = db.query(User).filter_by(id=user_id).first()
     if not user:
         return jsonify({"error": "無効なセッションIDです"}), 401
 
     try:
         # ユーザーIDに紐づくタスクを取得
-        task = db.query(TaskInfo).filter_by(task_uuid=task_uuid, user_id=user.id).first()
+        task = db.query(TaskInfo).filter_by(task_uuid=task_uuid, user_id=user_id).first()
 
         if not task:
             return jsonify({"error": "Task not found or you do not have permission to delete this task"}), 404
