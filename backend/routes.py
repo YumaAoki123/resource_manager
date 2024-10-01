@@ -1,9 +1,9 @@
 from flask import Blueprint,Flask, request, jsonify, session, redirect, url_for, render_template, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
 from email_service import create_form
-from calendar_service import calculate_free_times, get_credentials, get_calendar_service
+from calendar_service import calculate_free_times, get_credentials
 from dotenv import load_dotenv
-from model.models import Base, User, db, TaskInfo, TaskConditions, EventMappings
+from model.models import Base, User, db, TaskInfo, TaskConditions, EventMappings,Token
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 import uuid
@@ -26,8 +26,8 @@ from flask import make_response
 import flask_session
 import jwt
 from functools import wraps
-
-
+from google.oauth2.credentials import Credentials
+import json
 # クライアントIDとクライアントシークレットを環境変数から取得する
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # HTTPSを強制しないようにする（ローカル開発用）
 client_id = os.environ['GOOGLE_CLIENT_ID']
@@ -35,7 +35,7 @@ client_secret = os.environ['GOOGLE_CLIENT_SECRET']
 redirect_uri = "http://127.0.0.1:5000/callback"
 
 # 認可のためのスコープ
-scope = ["https://www.googleapis.com/auth/calendar.readonly"]
+scope = ["https://www.googleapis.com/auth/calendar"]
 
 # Google OAuth 2.0エンドポイント
 authorization_base_url = "https://accounts.google.com/o/oauth2/auth"
@@ -127,6 +127,7 @@ def auto_login(user_id):
 
     
 @main.route('/logout', methods=['POST'])
+@token_required
 def logout():
     # セッションからユーザーが存在しているか確認
     if 'username' in session:
@@ -261,6 +262,8 @@ def delete_todo_task(user_id):
 @main.route("/favicon.ico")
 def favicon():
     return '', 204
+
+
 
 # クライアントからのリクエストを受け取って、指定の期間の空き時間を取得
 @main.route("/get_free_times", methods=['POST'])
