@@ -30,8 +30,7 @@ class Token(Base):
     # 外部キーとしてUserテーブルのidを指定
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     
-    # credsオブジェクト全体を保存するフィールド
-    google_creds = Column(LargeBinary, nullable=False)  # ここで、pickleされたcredsオブジェクトを保存
+    token_data = Column(String)  # トークン情報
     
     created_at = Column(DateTime, default=datetime.now(timezone.utc))  # トークン作成日時
 

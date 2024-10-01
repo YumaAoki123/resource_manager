@@ -12,66 +12,54 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from model.models import User, Token, db
 from flask import session
-# 認証に必要なスコープ
-SCOPES = [
-    'https://www.googleapis.com/auth/calendar'
-]
+import json
+from google.oauth2.credentials import Credentials
 
 
-def get_credentials():
-    creds = None
-    # Flaskセッションからユーザー名を取得
-    username = session.get('username')
-    if not username:
-        raise ValueError("No username found in session.")
-    
-    # データベースからユーザーを取得
-    user = db.query(User).filter_by(username=username).first()
-    if not user:
-        raise ValueError(f"User with username {username} does not exist.")
-    print(f'user:{user}')
-    # データベースからユーザーのトークン情報を取得
-    token = db.query(Token).filter_by(user_id=user.id).first()
-    print(f'token:{token}')
-   
-    if token and token.google_creds:
-        try:
-            creds = pickle.loads(token.access_token)  # `creds` オブジェクト全体を読み込む
-            print("Deserialized Credentials:", creds)
-            print("Type of Credentials:", type(creds))  # データ型の確
-            if creds and creds.valid:
+os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # HTTPSを強制しないようにする（ローカル開発用）
+client_id = os.environ['GOOGLE_CLIENT_ID']
+client_secret = os.environ['GOOGLE_CLIENT_SECRET']
+# 認可のためのスコープ
+scope = ["https://www.googleapis.com/auth/calendar"]
 
-                return creds
-            elif creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-                # 更新したトークンを保存
-                token.access_token = pickle.dumps(creds)  # `creds` オブジェクト全体を保存
-                db.commit()
-                return creds
-        except Exception as e:
-            print(f'Error loading credentials: {e}')
+# トークンをデータベースに保存する関数
+def save_token_to_db(user_id, credentials):
+    token_data = credentials.to_json()
     
-    # トークンが存在しないか無効な場合、新しい認証を行う
-    credentials_path = os.path.join(os.path.dirname(__file__), 'credentials.json')
-    flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
-    creds = flow.run_local_server(port=0)
+    # ユーザーのトークンが既に存在する場合は更新、なければ新規作成
+    user_token = db.query(Token).filter_by(user_id=user_id).first()
     
-    # 新しいトークンをデータベースに保存
-    new_token = Token(
-        user_id=user.id,
-        access_token=pickle.dumps(creds),  # `creds` オブジェクト全体を保存
-    )
-    db.add(new_token)
+    if user_token:
+        user_token.token_data = token_data
+    else:
+        user_token = Token(user_id=user_id, token_data=token_data)
+        db.add(user_token)
+
     db.commit()
 
-    return creds
+# トークンをデータベースから取得する関数
+def get_credentials(user_id):
+    credentials = None
+    
+    # データベースからユーザーのトークンを取得
+    user_token = session.query(Token).filter_by(user_id=user_id).first()
 
+    if user_token:
+        token_data = json.loads(user_token.token_data)
+        credentials = Credentials(**token_data)
+    
+    # トークンが存在しないか、期限切れの場合は新規取得
+    if not credentials or not credentials.valid:
+        if credentials and credentials.expired and credentials.refresh_token:
+            credentials.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(client_secret, scope)
+            credentials = flow.run_local_server(port=0)
 
-# Google Calendar API を使うための準備
-def get_calendar_service():
-    creds = get_credentials()
-    calendar_service = build('calendar', 'v3', credentials=creds)
-    return calendar_service
+        # 新しいトークンをデータベースに保存
+        save_token_to_db(user_id, credentials)
+
+    return credentials
     
 
 def calculate_free_times(start_date, end_date, calendar_id="primary"):
@@ -95,7 +83,7 @@ def calculate_free_times(start_date, end_date, calendar_id="primary"):
         "timeZone": "Asia/Tokyo",  # レスポンスのタイムゾーン
         "items": [{"id": calendar_id}]
     }
-    service = get_calendar_service()
+    service = get_credentials(user_id)
     # Freebusy リクエストを送信
     freebusy_result = service.freebusy().query(body=request_body).execute()
 
