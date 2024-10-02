@@ -282,7 +282,7 @@ def get_free_times(user_id):
            return jsonify({"error": "無効なセッションIDです"}), 401
         
         # Google Calendar APIを使ってイベントを取得
-        free_times = calculate_free_times(start_date, end_date, calendar_id)
+        free_times = calculate_free_times(start_date, end_date, user_id, calendar_id)
         print(f'free_times_backend:{free_times}')
         return jsonify({"free_times": free_times}), 200
 
