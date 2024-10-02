@@ -25,7 +25,7 @@ scope = ["https://www.googleapis.com/auth/calendar"]
 # トークンをデータベースに保存する関数
 def save_token_to_db(user_id, credentials):
     token_data = credentials.to_json()
-    
+    print(f'user_id_passed:{user_id}')
     # ユーザーのトークンが既に存在する場合は更新、なければ新規作成
     user_token = db.query(Token).filter_by(user_id=user_id).first()
     
@@ -39,10 +39,21 @@ def save_token_to_db(user_id, credentials):
 
 # トークンをデータベースから取得する関数
 def get_credentials(user_id):
+        # 実行環境に応じたファイルパスの取得
+    if getattr(sys, 'frozen', False):
+        # PyInstallerでパッケージ化された場合
+        base_path = sys._MEIPASS
+    else:
+        # 開発中の場合
+        base_path = os.path.dirname(__file__)
+
+        # credentials.jsonのパスを組み立てる
+    credentials_path = os.path.join(base_path, 'credentials.json')
+
     credentials = None
-    
+    print(f'user_id:{user_id}')
     # データベースからユーザーのトークンを取得
-    user_token = session.query(Token).filter_by(user_id=user_id).first()
+    user_token = db.query(Token).filter_by(user_id=user_id).first()
 
     if user_token:
         token_data = json.loads(user_token.token_data)
@@ -53,7 +64,7 @@ def get_credentials(user_id):
         if credentials and credentials.expired and credentials.refresh_token:
             credentials.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(client_secret, scope)
+            flow = InstalledAppFlow.from_client_secrets_file(credentials_path, scope)
             credentials = flow.run_local_server(port=0)
 
         # 新しいトークンをデータベースに保存
@@ -62,7 +73,8 @@ def get_credentials(user_id):
     return credentials
     
 
-def calculate_free_times(start_date, end_date, calendar_id="primary"):
+def calculate_free_times(start_date, end_date, user_id, calendar_id="primary"):
+    print(f'user_id:{user_id}')
     free_times = []
     print(f'start_date:{start_date}')
     # JST タイムゾーンを設定
@@ -83,7 +95,9 @@ def calculate_free_times(start_date, end_date, calendar_id="primary"):
         "timeZone": "Asia/Tokyo",  # レスポンスのタイムゾーン
         "items": [{"id": calendar_id}]
     }
-    service = get_credentials(user_id)
+    credentials = get_credentials(user_id)
+    # Google Calendar APIのサービスオブジェクトを作成
+    service = build('calendar', 'v3', credentials=credentials)
     # Freebusy リクエストを送信
     freebusy_result = service.freebusy().query(body=request_body).execute()
 
