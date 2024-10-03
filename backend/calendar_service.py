@@ -57,6 +57,10 @@ def get_credentials(user_id):
 
     if user_token:
         token_data = json.loads(user_token.token_data)
+            # expiryが文字列の場合、datetimeオブジェクトに変換
+        if 'expiry' in token_data and isinstance(token_data['expiry'], str):
+            token_data['expiry'] = datetime.fromisoformat(token_data['expiry'])
+            
         credentials = Credentials(**token_data)
     
     # トークンが存在しないか、期限切れの場合は新規取得
