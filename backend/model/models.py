@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Text, ForeignKey, DateTime, JSON, BLOB
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone
@@ -30,7 +30,7 @@ class Token(Base):
     # 外部キーとしてUserテーブルのidを指定
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     
-    token_data = Column(String)  # トークン情報
+    token_data = Column(BLOB)  # BLOB 型として保存
     
     created_at = Column(DateTime, default=datetime.now(timezone.utc))  # トークン作成日時
 

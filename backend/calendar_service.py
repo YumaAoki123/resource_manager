@@ -24,7 +24,8 @@ scope = ["https://www.googleapis.com/auth/calendar"]
 
 # トークンをデータベースに保存する関数
 def save_token_to_db(user_id, credentials):
-    token_data = credentials.to_json()
+        # バイナリ形式でシリアライズ
+    token_data = pickle.dumps(credentials)  # credentialsをバイナリデータに変換
     print(f'user_id_passed:{user_id}')
     # ユーザーのトークンが既に存在する場合は更新、なければ新規作成
     user_token = db.query(Token).filter_by(user_id=user_id).first()
@@ -56,18 +57,19 @@ def get_credentials(user_id):
     user_token = db.query(Token).filter_by(user_id=user_id).first()
 
     if user_token:
-        token_data = json.loads(user_token.token_data)
-            # expiryが文字列の場合、datetimeオブジェクトに変換
-        if 'expiry' in token_data and isinstance(token_data['expiry'], str):
-            token_data['expiry'] = datetime.fromisoformat(token_data['expiry'])
-            
-        credentials = Credentials(**token_data)
-    
+        # BLOBデータをデシリアライズ
+        credentials = pickle.loads(user_token.token_data)
+        
+        # デバッグ: credentialsの内容を確認
+        print(f"Debug: Credentials for user_id {user_id}: {credentials}")
+
     # トークンが存在しないか、期限切れの場合は新規取得
     if not credentials or not credentials.valid:
         if credentials and credentials.expired and credentials.refresh_token:
+            # トークンを更新
             credentials.refresh(Request())
         else:
+            # 新しいトークンを取得
             flow = InstalledAppFlow.from_client_secrets_file(credentials_path, scope)
             credentials = flow.run_local_server(port=0)
 
