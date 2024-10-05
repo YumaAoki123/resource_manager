@@ -1430,21 +1430,17 @@ def open_main_app():
             naive_datetime = datetime.combine(base_date, time)
             return jst.localize(naive_datetime)
         
-        #ユーザが選択した時間帯と最低タスク時間の条件を、空き時間と比較してタスクを実際に入れられる時間帯を算出する。
+
+        
+        #ユーザが設定した条件(時間帯・最低タスク時間)での実際のタスク予定時間。
         def compare_time_ranges(selected_ranges, free_times, min_duration):
             task_times = []
+            print(f'freetime_compare__jst]{free_times}')
+        # min_durationをtimedeltaに変換
             min_duration_td = timedelta(minutes=min_duration)
-
-            # free_times内の文字列をdatetimeオブジェクトに変換
-            parsed_free_times = []
-            for start_dt, end_dt in free_times:
-               
-                # タイムゾーン情報を付加（JSTに設定）
-           
-                parsed_free_times.append((start_dt, end_dt))
-
             # 各選択された時間帯について処理
-            for free_start, free_end in parsed_free_times:
+            for free_start, free_end in free_times:
+                # 空いている時間の開始日を基準日として使用
                 current_date = free_start.date()
                 next_date = current_date + timedelta(days=1)
 
@@ -1453,6 +1449,7 @@ def open_main_app():
                     selected_start_today = combine_time_with_date(selected_start_str, current_date)
                     selected_end_today = combine_time_with_date(selected_end_str, current_date)
 
+                    # 翌日の選択された時間帯を補完
                     selected_start_tomorrow = combine_time_with_date(selected_start_str, next_date)
                     selected_end_tomorrow = combine_time_with_date(selected_end_str, next_date)
 
@@ -1461,18 +1458,16 @@ def open_main_app():
                         task_start = max(selected_start_today, free_start)
                         task_end = min(selected_end_today, free_end)
                         if task_end - task_start >= min_duration_td:
-                            task_times.append((task_start, task_end))
+                         task_times.append((task_start, task_end))
 
                     # 翌日の日付での重なりを確認
                     if selected_start_tomorrow < free_end and selected_end_tomorrow > free_start:
                         task_start = max(selected_start_tomorrow, free_start)
                         task_end = min(selected_end_tomorrow, free_end)
                         if task_end - task_start >= min_duration_td:
-                            task_times.append((task_start, task_end))
+                         task_times.append((task_start, task_end))
 
             return task_times
-        
-
 
         # def show_available_task_times():
         #     selected_ranges = get_selected_time_ranges()
@@ -1488,12 +1483,14 @@ def open_main_app():
         def check_available_time(task_times, task_duration_minutes):
             # タスクの所要時間を timedelta に変換
             task_duration = timedelta(minutes=task_duration_minutes)
-
+            
             # 空いている時間帯の合計時間を計算
             total_available_time = timedelta()
+            print(f'total_available_time]{total_available_time}')
+
             for start, end in task_times:
                 total_available_time += end - start
-
+                print(f'start, end]{start, end}')
             # 時間が足りるかどうかを確認
             if total_available_time >= task_duration:
                 extra_time = total_available_time - task_duration
@@ -1557,17 +1554,17 @@ def open_main_app():
             task_times = compare_time_ranges(selected_ranges, free_times, min_duration)
             print(f'task_times:{task_times}')
             # 空き時間の合計を計算
-            total_free_time_minutes = sum((end - start).total_seconds() / 60 for start, end in task_times)
+            free_time_under_conditions = sum((end - start).total_seconds() / 60 for start, end in task_times)
             
-            print(f'totalfreeminutes:{total_free_time_minutes}')
-            total_free_time_formatted = format_duration(total_free_time_minutes)
+            print(f'free_time_under_conditions:{free_time_under_conditions}')
+            total_free_time_formatted = format_duration(free_time_under_conditions)
 
             # タスク時間をパーセンテージに変換
-            task_duration_percentage = calculate_percentage(task_duration_minutes, total_free_time_minutes)
+            task_duration_percentage = calculate_percentage(task_duration_minutes, free_time_under_conditions)
             task_duration_formatted = format_duration(task_duration_minutes)
 
             # 差分を計算
-            time_difference = total_free_time_minutes - task_duration_minutes
+            time_difference = free_time_under_conditions - task_duration_minutes
             time_difference_formatted = format_duration(abs(time_difference))
 
             # グラフを更新
@@ -1603,6 +1600,8 @@ def open_main_app():
             # selected_time_rangeを文字列形式に変換
             time_range_str = ', '.join([f"{start}-{end}" for start, end in selected_time_range])
             
+            print(f'time_range_str:{time_range_str}')
+
             # イベントデータとタスク条件をまとめたデータ
             data = {
                 'task_uuid': task_uuid,
@@ -1628,10 +1627,13 @@ def open_main_app():
             # サーバへのPOSTリクエスト
             url = 'http://127.0.0.1:5000/add_events_and_task_conditions'
             try:
-                cookies = load_cookies()        
-                session = requests.Session()
-                session.cookies.update(cookies)
-                response = session.post(url, json=data)
+                jwt = load_jwt()
+                
+            # HTTPヘッダーにJWTを含める
+                headers = {
+                    'Authorization': f'Bearer {jwt}'
+    }
+                response = requests.post(url, json=data, headers=headers)
                 if response.status_code == 200:
                     print("Task conditions and events successfully sent to server.")
                     print(f"Server response: {response.json()}")
@@ -1640,28 +1642,31 @@ def open_main_app():
             except requests.RequestException as e:
                 print(f"Request error: {e}")
 
-        def save_event_to_server(task_uuid, event_id, event_summary, event_start, event_end):
-            """サーバにUUIDとイベントIDおよび詳細を保存"""
-            url = 'http://127.0.0.1:5000/save_event_mapping'
-            data = {
-                'task_uuid': task_uuid,
-                'event_id': event_id,
-                'event_summary': event_summary,
-                'event_start': event_start,
-                'event_end': event_end
-            }
+    #     def save_event_to_server(task_uuid, event_id, event_summary, event_start, event_end):
+    #         """サーバにUUIDとイベントIDおよび詳細を保存"""
+    #         url = 'http://127.0.0.1:5000/save_event_mapping'
+    #         data = {
+    #             'task_uuid': task_uuid,
+    #             'event_id': event_id,
+    #             'event_summary': event_summary,
+    #             'event_start': event_start,
+    #             'event_end': event_end
+    #         }
 
-            try:
-                cookies = load_cookies()        
-                session = requests.Session()
-                session.cookies.update(cookies)
-                response = session.post(url, json=data)
-                if response.status_code == 200:
-                    print("Event details saved to server.")
-                else:
-                    print(f"Failed to save event: {response.text}")
-            except requests.RequestException as e:
-                print(f"Request error: {e}")
+    #         try:
+    #             jwt = load_jwt()
+                
+    #         # HTTPヘッダーにJWTを含める
+    #             headers = {
+    #                 'Authorization': f'Bearer {jwt}'
+    # }
+    #             response = requests.post(url, json=data, headers=headers)
+    #             if response.status_code == 200:
+    #                 print("Event details saved to server.")
+    #             else:
+    #                 print(f"Failed to save event: {response.text}")
+    #         except requests.RequestException as e:
+    #             print(f"Request error: {e}")
 
 
         def fill_available_time(task_times, task_duration_minutes):
