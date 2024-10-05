@@ -289,7 +289,9 @@ def get_free_times(user_id):
 
 
 @main.route('/add_events_and_task_conditions', methods=['POST'])
-def add_events_and_task_conditions():
+@token_required
+def add_events_and_task_conditions(user_id):
+    print(f'add_events_user_id:{user_id}')
     data = request.json
     task_uuid = data['task_uuid']
     task_duration = data['task_duration']
@@ -301,8 +303,12 @@ def add_events_and_task_conditions():
     events = data['events']
 
     # 1. タスク条件を保存
-    save_task_conditions(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration)
-    service = get_calendar_service()
+    save_task_conditions(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration,user_id)
+    credentials = get_credentials(user_id)
+    # Google Calendar APIのサービスオブジェクトを作成
+    service = build('calendar', 'v3', credentials=credentials)
+
+    event_results = []  # イベント結果の初期化
 
     # 2. 各イベントをGoogle Calendarに追加
     for event_data in events:
@@ -332,7 +338,7 @@ def add_events_and_task_conditions():
             event_end = event_result['end'].get('dateTime', event_result['end'].get('date'))
 
             # イベントIDとUUIDのマッピングをデータベースに保存
-            save_event_mapping(task_uuid, event_id, event_summary, event_start, event_end)
+            save_event_mapping(task_uuid, event_id, event_summary, event_start, event_end, user_id)
 
             event_results.append({
                 "event_id": event_id,
@@ -346,18 +352,16 @@ def add_events_and_task_conditions():
     return jsonify({"events": event_results}), 200
 
 
-def save_event_mapping(task_uuid, event_id, event_summary, event_start, event_end):
+def save_event_mapping(task_uuid, event_id, event_summary, event_start, event_end, user_id):
 
-        # セッションからユーザー名とパスワードを取得
-    username = session.get('username')
-    print(f'username:{username}')
+    print(f'save_mappings_user_id:{user_id}')
         # ユーザー名に基づいてユーザーを検索
-    user = db.query(User).filter_by(username=username).first()
+    user = db.query(User).filter_by(id=user_id).first()
     if not user:
         return jsonify({"error": "無効なセッションIDです"}), 401
     
     try:
-        new_event = EventMappings(task_uuid=task_uuid, event_id=event_id, user_id=user.id, event_summary=event_summary, event_start=event_start, event_end=event_end)
+        new_event = EventMappings(task_uuid=task_uuid, event_id=event_id, event_summary=event_summary, event_start=event_start, event_end=event_end)
         print(f'new_event: {new_event}')
         db.add(new_event)
         db.commit()
@@ -371,13 +375,11 @@ def save_event_mapping(task_uuid, event_id, event_summary, event_start, event_en
     finally:
         db.close()
 
-def save_task_conditions(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration):
-        # セッションからユーザー名とパスワードを取得
-        # セッションからユーザー名とパスワードを取得
-    username = session.get('username')
-    print(f'username:{username}')
+def save_task_conditions(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration, user_id):
+   
+    print(f'save_condition_user_id:{user_id}')
         # ユーザー名に基づいてユーザーを検索
-    user = db.query(User).filter_by(username=username).first()
+    user = db.query(User).filter_by(id=user_id).first()
     if not user:
         return jsonify({"error": "無効なセッションIDです"}), 401
     

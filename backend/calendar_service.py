@@ -90,9 +90,12 @@ def calculate_free_times(start_date, end_date, user_id, calendar_id="primary"):
     start_date_datetime = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S%z")
     end_date_datetime = datetime.strptime(end_date, "%Y-%m-%dT%H:%M:%S%z")
 
-    # UTC に変換
+    # google calendar API用にUTC に変換
     start_time_utc = start_date_datetime.astimezone(pytz.UTC)
     end_time_utc = end_date_datetime.astimezone(pytz.UTC)
+
+    print(f'start_time_utc:{start_time_utc}')
+    print(f'end_time_utc:{end_time_utc}')
 
     # Freebusy リクエストのボディを作成
     request_body = {
@@ -108,18 +111,25 @@ def calculate_free_times(start_date, end_date, user_id, calendar_id="primary"):
     freebusy_result = service.freebusy().query(body=request_body).execute()
 
     busy_times = freebusy_result['calendars'][calendar_id]['busy']
-
+    print(f'busy_times:{busy_times}')
     # 予定のある時間帯を計算
     busy_periods = []
     for busy_period in busy_times:
         start = busy_period['start']
         end = busy_period['end']
 
+        # UTCのまま計算し、日本時間に変換
+        start_time_utc = datetime.fromisoformat(start.replace("Z", "+00:00"))
+        end_time_utc = datetime.fromisoformat(end.replace("Z", "+00:00"))
+
         # 日本時間に変換
         start_time_jst = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone(jst)
         end_time_jst = datetime.fromisoformat(end.replace("Z", "+00:00")).astimezone(jst)
 
         busy_periods.append((start_time_jst, end_time_jst))
+        
+
+    print(f'busy_periods:{busy_periods}')
 
     # 予定のない時間帯を計算
     busy_periods.sort()  # 予定のある時間帯をソート
