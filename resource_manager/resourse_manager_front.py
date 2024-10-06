@@ -1432,42 +1432,37 @@ def open_main_app():
         
 
         
-        #ユーザが設定した条件(時間帯・最低タスク時間)での実際のタスク予定時間。
+        # ユーザが設定した条件(時間帯・最低タスク時間)での実際のタスク予定時間
         def compare_time_ranges(selected_ranges, free_times, min_duration):
-            task_times = []
-            print(f'freetime_compare__jst]{free_times}')
-        # min_durationをtimedeltaに変換
-            min_duration_td = timedelta(minutes=min_duration)
-            # 各選択された時間帯について処理
+            task_times = []  # タスク時間を保持するリスト
+            min_duration_td = timedelta(minutes=min_duration)  # 最低タスク時間を timedelta に変換
+
+            # free_times と selected_ranges の重なりを確認
             for free_start, free_end in free_times:
                 # 空いている時間の開始日を基準日として使用
                 current_date = free_start.date()
-                next_date = current_date + timedelta(days=1)
 
-                for selected_start_str, selected_end_str in selected_ranges:
-                    # 現在の日付と次の日付で選択された時間帯を補完
-                    selected_start_today = combine_time_with_date(selected_start_str, current_date)
-                    selected_end_today = combine_time_with_date(selected_end_str, current_date)
+                while current_date <= free_end.date():
+                    for selected_start_str, selected_end_str in selected_ranges:
+                        # current_date と selected_start_str, selected_end_str でタスク候補の時間帯を生成
+                        selected_start = combine_time_with_date(selected_start_str, current_date)
+                        selected_end = combine_time_with_date(selected_end_str, current_date)
 
-                    # 翌日の選択された時間帯を補完
-                    selected_start_tomorrow = combine_time_with_date(selected_start_str, next_date)
-                    selected_end_tomorrow = combine_time_with_date(selected_end_str, next_date)
+                        print(f'selected_start: {selected_start}, selected_end: {selected_end}')
 
-                    # 今日の日付での重なりを確認
-                    if selected_start_today < free_end and selected_end_today > free_start:
-                        task_start = max(selected_start_today, free_start)
-                        task_end = min(selected_end_today, free_end)
-                        if task_end - task_start >= min_duration_td:
-                         task_times.append((task_start, task_end))
+                        # 今日の日付での重なりを確認
+                        if selected_start < free_end and selected_end > free_start:
+                            task_start = max(selected_start, free_start)  # 開始時刻の重なり部分を確認
+                            task_end = min(selected_end, free_end)  # 終了時刻の重なり部分を確認
 
-                    # 翌日の日付での重なりを確認
-                    if selected_start_tomorrow < free_end and selected_end_tomorrow > free_start:
-                        task_start = max(selected_start_tomorrow, free_start)
-                        task_end = min(selected_end_tomorrow, free_end)
-                        if task_end - task_start >= min_duration_td:
-                         task_times.append((task_start, task_end))
+                            # 重なり時間が最低タスク時間を満たすか確認
+                            if task_end - task_start >= min_duration_td:
+                                task_times.append((task_start, task_end))  # タスク時間をリストに追加
 
-            return task_times
+                    # 次の日に移動して再度同じ時間帯のチェックを行う
+                    current_date += timedelta(days=1)
+
+            return task_times  # 最終的なタスク時間を返す
 
         # def show_available_task_times():
         #     selected_ranges = get_selected_time_ranges()
