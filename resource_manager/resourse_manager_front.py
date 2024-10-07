@@ -1128,11 +1128,11 @@ def open_main_app():
                     
                     if 0 <= index < len(tasks):
                         selected_task = tasks[index]
-                        task_uuid = selected_task['task_uuid']  # タスクUUID
+                        task_id = selected_task['task_id']  # タスクUUID
                         task_name = selected_task['task_name']  # タスク名
 
                         # 選択されたタスクの名前とUUIDをスケジュールマネージャに保存
-                        schedule_manager.selected_task_uuid = task_uuid
+                        schedule_manager.selected_task_id = task_id
                         schedule_manager.selected_task_name = task_name
 
                         # イベント作成用の新しいウィンドウを作成
@@ -1599,7 +1599,7 @@ def open_main_app():
 
             # イベントデータとタスク条件をまとめたデータ
             data = {
-                'task_uuid': task_uuid,
+                'task_id': task_id,
                 'task_duration': task_duration,
                 'start_date': start_date,
                 'end_date': end_date,
@@ -1696,7 +1696,7 @@ def open_main_app():
         def on_insert_button_click():
         
             # 選択されたタスクの名前とUUIDがある場合のみ実行
-            if schedule_manager.selected_task_name and schedule_manager.selected_task_uuid:
+            if schedule_manager.selected_task_name and schedule_manager.selected_task_id:
                 free_times = get_free_times()
                 task_duration = get_task_duration()
                 start_date, end_date = get_date_range()
@@ -1713,7 +1713,7 @@ def open_main_app():
                        
                         filled_task_times,
                         schedule_manager.selected_task_name,
-                        schedule_manager.selected_task_uuid,
+                        schedule_manager.selected_task_id,
                         task_duration,
                         start_date,
                         end_date,

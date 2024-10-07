@@ -28,6 +28,7 @@ import jwt
 from functools import wraps
 from google.oauth2.credentials import Credentials
 import json
+from dateutil import parser
 # クライアントIDとクライアントシークレットを環境変数から取得する
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # HTTPSを強制しないようにする（ローカル開発用）
 client_id = os.environ['GOOGLE_CLIENT_ID']
@@ -153,7 +154,6 @@ def logout():
 @main.route('/add_task', methods=['POST'])
 @token_required  # JWTの検証を行う
 def add_task(user_id):
-
     print(f'user_id:{user_id}')
 
     data = request.get_json()
@@ -162,71 +162,95 @@ def add_task(user_id):
     if not task_name:
         return jsonify({"error": "Task name is required"}), 400
     print(f'data:{data}')
-    task_uuid = str(uuid.uuid4())
-  
-
-
+    
     # ユーザーIDに基づいてユーザーを検索
     user = db.query(User).filter_by(id=user_id).first()
-        # ユーザー情報のデバッグ出力
-    print(f'user_id: {user.id}')
-    print(f'username: {user.username}')
+    
+    # ユーザー情報のデバッグ出力
     if not user:
         return jsonify({"error": "無効なセッションIDです"}), 401
 
+    print(f'user_id: {user.id}')
+    print(f'username: {user.username}')
+    
     try:
-        new_task = TaskInfo(task_uuid=task_uuid, task_name=task_name, user_id=user.id)
+        # 新しいタスクをTaskInfoテーブルに追加
+        new_task = TaskInfo(task_name=task_name, user_id=user.id)
         print(f'new_task: {new_task}')
         db.add(new_task)
         db.commit()
-                # デバッグ用にデータベースから追加したタスクを再度取得
-        saved_task = db.query(TaskInfo).filter_by(task_uuid=task_uuid).first()
-        print(f'saved_task: id={saved_task.id}, task_uuid={saved_task.task_uuid}, task_name={saved_task.task_name}, user_id={saved_task.user_id}')
+        
+        # デバッグ用にデータベースから追加したタスクを再度取得
+        saved_task = db.query(TaskInfo).filter_by(id=new_task.id).first()
+        print(f'saved_task: id={saved_task.id}, task_name={saved_task.task_name}, user_id={saved_task.user_id}')
 
-        return jsonify({"message": "Task added successfully", "task_uuid": task_uuid}), 201
+        # 返却するレスポンスでtask_uuidではなくidを返す
+        return jsonify({"message": "Task added successfully", "task_id": saved_task.id}), 201
     except Exception as e:
         db.rollback()
         return jsonify({"error": str(e)}), 500
     finally:
         db.close()
 
+
 @main.route('/get_tasks_without_conditions', methods=['GET'])
 @token_required  # JWTの検証を行う
 def get_tasks_without_conditions(user_id):
-        # デコードされたJWTのペイロードからユーザーIDを取得
-
-    print(f'witout_condition_user_id:{user_id}')
+    print(f'without_condition_user_id: {user_id}')
     try:
         # セッションIDに基づいてユーザーを検索
         user = db.query(User).filter_by(id=user_id).first()
-        print(f'user_id: {user.id}')
-        print(f'username: {user.username}')
         if not user:
             return jsonify({"error": "無効なセッションIDです"}), 401
 
-        # ログインしているユーザーのIDを使ってタスクを取得
-        tasks = db.query(TaskInfo).outerjoin(TaskConditions, TaskInfo.task_uuid == TaskConditions.task_uuid) \
-            .filter(TaskConditions.task_uuid == None, TaskInfo.user_id == user.id).all()
+        print(f'user_id: {user.id}')
+        print(f'username: {user.username}')
 
-        # 必要なデータをリストに整形
-        task_list = [{'task_uuid': task.task_uuid, 'task_name': task.task_name} for task in tasks]
+        # TaskInfo に関連する TaskConditions が存在しないタスクを取得
+        tasks = (
+            db.query(TaskInfo, TaskConditions)
+            .outerjoin(TaskConditions, TaskInfo.id == TaskConditions.task_id)
+            .filter(TaskConditions.task_id == None, TaskInfo.user_id == user.id)
+            .all()
+        )
+
+        # 各タスクに関連するデータをリストに追加
+        task_list = []
+        for task_info, task_conditions in tasks:
+            task_data = {
+                'task_id': task_info.id,
+                'task_name': task_info.task_name,
+            }
+
+            # TaskConditions のデータが存在する場合、task_duration を取得してデバッグ出力
+            if task_conditions:
+                print(f"task_conditions.task_duration: {task_conditions.task_duration}")
+                task_data['task_duration'] = task_conditions.task_duration
+            else:
+                task_data['task_duration'] = None  # TaskConditions が存在しない場合は None にする
+
+            task_list.append(task_data)
+
         print(f'task_list: {task_list}')
         return jsonify(task_list), 200
 
     except Exception as e:
+        print(f"Error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
     finally:
         db.close()
 
+
+
 @main.route('/delete_todo_task', methods=['DELETE'])
 @token_required
 def delete_todo_task(user_id):
     data = request.get_json()
-    task_uuid = data.get('task_uuid')
+    task_id = data.get('task_id')
     
-    if not task_uuid:
-        return jsonify({"error": "task_uuid is required"}), 400
+    if not task_id:
+        return jsonify({"error": "task_id is required"}), 400
 
     if not user_id:
         return jsonify({"error": "user_idが提供されていません"}), 400
@@ -238,14 +262,14 @@ def delete_todo_task(user_id):
 
     try:
         # ユーザーIDに紐づくタスクを取得
-        task = db.query(TaskInfo).filter_by(task_uuid=task_uuid, user_id=user_id).first()
+        task = db.query(TaskInfo).filter_by(task_id=task_id, user_id=user_id).first()
 
         if not task:
             return jsonify({"error": "Task not found or you do not have permission to delete this task"}), 404
 
         # 関連するtask_conditionsやevent_mappingsも削除する場合
-        db.query(TaskConditions).filter_by(task_uuid=task_uuid).delete()
-        db.query(EventMappings).filter_by(task_uuid=task_uuid).delete()
+        db.query(TaskConditions).filter_by(task_id=task_id).delete()
+        db.query(EventMappings).filter_by(task_id=task_id).delete()
 
         # task_info自体を削除
         db.delete(task)
@@ -293,7 +317,7 @@ def get_free_times(user_id):
 def add_events_and_task_conditions(user_id):
     print(f'add_events_user_id:{user_id}')
     data = request.json
-    task_uuid = data['task_uuid']
+    task_id = data['task_id']  # task_uuidの代わりにtask_idを使用
     task_duration = data['task_duration']
     start_date = data['start_date']
     end_date = data['end_date']
@@ -303,8 +327,9 @@ def add_events_and_task_conditions(user_id):
     events = data['events']
 
     # 1. タスク条件を保存
-    save_task_conditions(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration,user_id)
+    save_task_conditions(task_id, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration, user_id)
     credentials = get_credentials(user_id)
+
     # Google Calendar APIのサービスオブジェクトを作成
     service = build('calendar', 'v3', credentials=credentials)
 
@@ -317,7 +342,7 @@ def add_events_and_task_conditions(user_id):
         end_time = event_data['end_time']
         selected_priority = event_data['selected_priority']
         
-                # Googleカレンダーにイベントを作成
+        # Googleカレンダーにイベントを作成
         event = {
             'summary': task_name,
             'start': {
@@ -337,8 +362,8 @@ def add_events_and_task_conditions(user_id):
             event_start = event_result['start'].get('dateTime', event_result['start'].get('date'))
             event_end = event_result['end'].get('dateTime', event_result['end'].get('date'))
 
-            # イベントIDとUUIDのマッピングをデータベースに保存
-            save_event_mapping(task_uuid, event_id, event_summary, event_start, event_end, user_id)
+            # イベントIDとタスクIDのマッピングをデータベースに保存
+            save_event_mapping(task_id, event_id, event_summary, event_start, event_end, user_id)
 
             event_results.append({
                 "event_id": event_id,
@@ -352,52 +377,69 @@ def add_events_and_task_conditions(user_id):
     return jsonify({"events": event_results}), 200
 
 
-def save_event_mapping(task_uuid, event_id, event_summary, event_start, event_end, user_id):
-
+def save_event_mapping(task_id, event_id, event_summary, event_start, event_end, user_id):
     print(f'save_mappings_user_id:{user_id}')
-        # ユーザー名に基づいてユーザーを検索
+    
+    # ユーザーを検索
     user = db.query(User).filter_by(id=user_id).first()
     if not user:
         return jsonify({"error": "無効なセッションIDです"}), 401
-    
+    parsed_event_start = parser.parse(event_start)
+    parsed_event_end = parser.parse(event_end)
+
     try:
-        new_event = EventMappings(task_uuid=task_uuid, event_id=event_id, event_summary=event_summary, event_start=event_start, event_end=event_end)
+        new_event = EventMappings(task_id=task_id, event_id=event_id, summary=event_summary, start_time=parsed_event_start, end_time=parsed_event_end, user_id=user_id)
         print(f'new_event: {new_event}')
         db.add(new_event)
         db.commit()
-                # デバッグ用にデータベースから追加したタスクを再度取得
-        saved_event = db.query(EventMappings).filter_by(task_uuid=task_uuid).first()
-        print(f'saved_task: id={saved_event.id}, task_uuid={saved_event.task_uuid}, start_time={saved_event.start_time}, user_id={saved_event.user_id}')
-        return jsonify({"message": "Task added successfully", "task_uuid": task_uuid}), 201
+        
+        # デバッグ用にデータベースから追加したイベントを再度取得
+        saved_event = db.query(EventMappings).filter_by(task_id=task_id).first()
+        print(f'saved_task: id={saved_event.id}, task_id={saved_event.task_id}, start_time={saved_event.start_time}, user_id={saved_event.user_id}')
+        
+        return jsonify({"message": "Event added successfully", "task_id": task_id}), 201
     except Exception as e:
         db.rollback()
         return jsonify({"error": str(e)}), 500
     finally:
         db.close()
 
-def save_task_conditions(task_uuid, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration, user_id):
-   
+def save_task_conditions(task_id, task_duration, start_date, end_date, selected_time_range, selected_priority, min_duration, user_id):
     print(f'save_condition_user_id:{user_id}')
-        # ユーザー名に基づいてユーザーを検索
+    
+    # ユーザーを検索
     user = db.query(User).filter_by(id=user_id).first()
     if not user:
         return jsonify({"error": "無効なセッションIDです"}), 401
-    
-    try:
-        new_event = TaskConditions(task_uuid=task_uuid, task_duration=task_duration, user_id=user.id, start_date=start_date, end_date=end_date, selected_time_range=selected_time_range, selected_priority=selected_priority, min_duration=min_duration)
-        print(f'new_event: {new_event}')
-        db.add(new_event)
-        db.commit()
-                # デバッグ用にデータベースから追加したタスクを再度取得
-        saved_event = db.query(EventMappings).filter_by(task_uuid=task_uuid).first()
-        print(f'saved_task: id={saved_event.id}, task_uuid={saved_event.task_uuid}, start_time={saved_event.start_time}, user_id={saved_event.user_id}')
+    parsed_start = parser.parse(start_date)
+    parsed_end = parser.parse(end_date)
 
-        return jsonify({"message": "Task added successfully", "task_uuid": task_uuid}), 201
+
+    try:
+        new_condition = TaskConditions(task_id=task_id, task_duration=task_duration, user_id=user.id, start_date=parsed_start, end_date=parsed_end, selected_time_range=selected_time_range, selected_priority=selected_priority, min_duration=min_duration)
+                # 作成したタスク条件をデバッグ出力
+        print(f'new_condition: {new_condition}')
+        print(f'task_id: {task_id}, task_duration: {task_duration}, user_id: {user_id}')
+
+        db.add(new_condition)
+        db.commit()
+
+        # デバッグ用にデータベースから追加したタスク条件を再取得
+        saved_conditions = db.query(TaskConditions).filter_by(task_id=task_id).first()
+        # 再取得したデータをデバッグ出力
+        if saved_conditions:
+            print(f'saved_conditions: id={saved_conditions.id}, task_id={saved_conditions.task_id}, task_duration={saved_conditions.task_duration}, selected_priority={saved_conditions.selected_priority}')
+        else:
+            print("Task condition was not saved correctly.")
+        
+        return jsonify({"message": "Task conditions added successfully", "task_id": task_id}), 201
     except Exception as e:
         db.rollback()
+        print(f"Error occurred: {str(e)}")
         return jsonify({"error": str(e)}), 500
     finally:
         db.close()
+
 
 @main.route('/login', methods=['POST'])
 @token_required  # JWTの検証を行う
