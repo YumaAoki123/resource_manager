@@ -27,11 +27,8 @@ class Token(Base):
     __tablename__ = 'tokens'
     
     id = Column(Integer, primary_key=True)
-    # 外部キーとしてUserテーブルのidを指定
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-    
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)# 外部キーとしてUserテーブルのidを指定
     token_data = Column(BLOB)  # BLOB 型として保存
-    
     created_at = Column(DateTime, default=datetime.now(timezone.utc))  # トークン作成日時
 
     # Userとのリレーションシップ
@@ -43,7 +40,6 @@ class TaskInfo(Base):
     __tablename__ = 'task_info'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    task_uuid = Column(String(36), unique=True, nullable=False)
     task_name = Column(String(100), nullable=False)
     
     # ユーザーIDへの外部キー
@@ -54,34 +50,39 @@ class TaskInfo(Base):
     conditions = relationship('TaskConditions', back_populates='task')
     events = relationship('EventMappings', back_populates='task')
 
+# タスク条件テーブルの定義
 class TaskConditions(Base):
     __tablename__ = 'task_conditions'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    task_uuid = Column(String(36), ForeignKey('task_info.task_uuid'), nullable=False)
+    task_id = Column(Integer, ForeignKey('task_info.id'), nullable=False)  # 外部キーリレーションシップ
     task_duration = Column(Integer, nullable=False)
     start_date = Column(DateTime, nullable=False)
     end_date = Column(DateTime, nullable=False)
     selected_time_range = Column(String, nullable=False)
     selected_priority = Column(Integer)
     min_duration = Column(Integer)
+    user_id = Column(Integer, ForeignKey('users.id'))  # ユーザーIDへの外部キー（追加）
     
     # 外部キーリレーションシップ
     task = relationship('TaskInfo', back_populates='conditions')
+    user = relationship('User')  # ユーザーとのリレーションシップ（追加）
 
+# イベントマッピングテーブルの定義
 class EventMappings(Base):
     __tablename__ = 'event_mappings'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    task_uuid = Column(String(36), ForeignKey('task_info.task_uuid'), nullable=False)
+    task_id = Column(Integer, ForeignKey('task_info.id'), nullable=False)  # 外部キーリレーションシップ
     event_id = Column(String(100), nullable=False)
     summary = Column(String(200))
     start_time = Column(DateTime)
     end_time = Column(DateTime)
+    user_id = Column(Integer, ForeignKey('users.id'))  # ユーザーIDへの外部キー（追加）
     
     # 外部キーリレーションシップ
     task = relationship('TaskInfo', back_populates='events')
-
+    user = relationship('User')  # ユーザーとのリレーションシップ（追加）
 
 
 
