@@ -157,13 +157,6 @@ def login_user(username, password, remember_me, login_window, username_entry, pa
     # 入力のバリデーションを実行し、成功した場合にのみログイン処理を行う
     if validate_login_input(username, password, username_entry, password_entry):
         try:
-            # セッションIDを読み込む（JWTトークン）
-            jwt = load_jwt()
-            
-            # HTTPヘッダーにJWTを含める
-            headers = {
-                'Authorization': f'Bearer {jwt}'
-            }
 
             login_data = {
                 'username': username,
@@ -175,13 +168,12 @@ def login_user(username, password, remember_me, login_window, username_entry, pa
             response = requests.post(
                 'http://127.0.0.1:5000/login', 
                 json=login_data,  # タスク名を辞書形式で送信
-                headers=headers
             )
             
             if response.status_code == 200:
                 print("ログイン成功")
-                if remember_me:
-                    save_jwt(jwt) 
+                jwt_token = response.json().get('token')
+                save_jwt(jwt_token)  # jwtを保存
                 open_main_app()  # メインアプリケーションを開く    
                 login_window.destroy()    
 
@@ -970,12 +962,43 @@ def open_main_app():
 
 
 
-    def update_schedule_listbox(schedule_listbox, schedule_manager):
+    def update_schedule_listbox(schedule_listbox):
         schedule_listbox.delete(0, ctk.END)
-        schedules = schedule_manager.get_schedules()
-        for schedule in schedules:
-            print(f"Current task: {schedule[0]}")  # デバッグ用の出力
-            schedule_listbox.insert(ctk.END, schedule[0])
+        schedules = get_schedules()  # スケジュールを取得
+        
+        if schedules:  # スケジュールがある場合のみ処理
+            for schedule in schedules:
+                # 'task_name' というキーを使ってアクセスする
+                schedule_listbox.insert(ctk.END, schedule['task_name'])
+                print(f"Current task: {schedule['task_name']}")  # デバッグ用の出力
+        else:
+            print("スケジュールデータが存在しません。")
+
+    def get_schedules():
+        try:
+            jwt = load_jwt()
+            
+            # HTTPヘッダーにJWTを含める
+            headers = {
+                'Authorization': f'Bearer {jwt}'
+            }
+            # サーバーから条件のないタスクを取得
+            response = requests.get('http://127.0.0.1:5000/get_schedules', headers=headers)
+        
+            if response.status_code == 200:
+                schedules = response.json()
+                print(f"schedules: {schedules}")
+                return schedules  # スケジュールリストを返す
+                
+            else:
+                print(f"エラー: {response.json().get('error')}")
+                return []
+        except requests.RequestException as e:
+            print(f"リクエストエラー: {e}")
+            return []
+
+
+
 
     def delete_selected_task(schedule_manager, service):
         selected_task_index = schedule_listbox.curselection()
@@ -1053,39 +1076,40 @@ def open_main_app():
         
         if selected_index:
             index = selected_index[0]
-            schedules = schedule_manager.get_schedules()  # schedule_manager からスケジュールを取得
+            
+            # schedulesの更新と取得
+            schedules = get_schedules()
             print("全スケジュール内容:", schedules)  # スケジュール内容を表示
             
             if index < len(schedules):  # インデックスが有効か確認
-                schedule = schedules[index]  # タプルを取得
+                schedule = schedules[index]  # 辞書を取得
                 
-                # タプルのインデックスに基づいてデータを取得
-                task_name = schedule[0]
-                task_uuid = schedule[1]
-                task_duration = schedule[2]
-                start_date = schedule[3]
-                end_date = schedule[4]
-                time_ranges = schedule[5]
-                
+                # 辞書のキーに基づいてデータを取得
+                task_name = schedule['task_name']
+                task_uuid = schedule['task_id']
+                task_duration = schedule['task_duration']
+                start_date = schedule['start_date']
+                end_date = schedule['end_date']
+                time_ranges = schedule['selected_time_range']
                 
                 # 優先度を判定し、表示内容を決定
-                if schedule[6] == 11:
+                if schedule['selected_priority'] == 11:
                     selected_priority = "高"
-                elif schedule[6] == 2:
+                elif schedule['selected_priority'] == 2:
                     selected_priority = "中"
-                elif schedule[6] == 7:
+                elif schedule['selected_priority'] == 7:
                     selected_priority = "低"
                 else:
-                    selected_priority = str(schedule[6])
+                    selected_priority = str(schedule['selected_priority'])
+                
                 # ラベルにタスク詳細を表示
                 details_text = f"タスクID: {task_uuid}\n" \
                             f"タスク名: {task_name}\n" \
                             f"スケジュール時間: {task_duration}\n" \
                             f"開始日: {start_date}\n" \
-                            f"終了日: {end_date}\n"\
-                            f"時間帯: {time_ranges}\n"\
-                            f"優先度: {selected_priority}\n"\
-                            
+                            f"終了日: {end_date}\n" \
+                            f"時間帯: {time_ranges}\n" \
+                            f"優先度: {selected_priority}\n"
                 
                 details_label.configure(text=details_text)
                 update_progress_bar(schedule_manager)  # プログレスバーを更新
@@ -1093,10 +1117,6 @@ def open_main_app():
                 print("無効なインデックス:", index)
         else:
             print("スケジュールが選択されていません。")
-
-
-
-
 
 
 
@@ -1636,7 +1656,6 @@ def open_main_app():
                     print(f"Failed to save task conditions and events: {response.text}")
             except requests.RequestException as e:
                 print(f"Request error: {e}")
-
     #     def save_event_to_server(task_uuid, event_id, event_summary, event_start, event_end):
     #         """サーバにUUIDとイベントIDおよび詳細を保存"""
     #         url = 'http://127.0.0.1:5000/save_event_mapping'
@@ -1722,7 +1741,7 @@ def open_main_app():
                         min_duration
                     )
                     update_todo_listbox(todo_listbox)
-                    update_schedule_listbox(schedule_listbox, schedule_manager)
+                    update_schedule_listbox(schedule_listbox)
             else:
                 print("タスクが選択されていません")
 
@@ -1764,34 +1783,45 @@ def open_main_app():
         
 
 
+    def get_event_mappings(task_id):
+        try:
+            jwt = load_jwt()
+            
+            # HTTPヘッダーにJWTを含める
+            headers = {
+                'Authorization': f'Bearer {jwt}'
+            }
+            data = {
+                'task_id':task_id
+            }
+            # サーバーから条件のないタスクを取得
+            response = requests.post('http://127.0.0.1:5000/get_event_mappings', json=data, headers=headers)
+        
+            if response.status_code == 200:
+                event_mappings = response.json()
+                print(f"event_mappings: {event_mappings}")
+                return event_mappings  # スケジュールリストを返す
+                
+            else:
+                print(f"エラー: {response.json().get('error')}")
+                return []
+        except requests.RequestException as e:
+            print(f"リクエストエラー: {e}")
+            return []
 
-    def fetch_task_times_and_duration(task_uuid):
-        # SQLiteデータベースに接続
-        conn = sqlite3.connect('resource_manager.db')
-        cursor = conn.cursor()
-
+    def fetch_task_times_and_duration(task_id):
         # 現在の時間を取得（Asia/Tokyo タイムゾーンに設定）
         tokyo_tz = pytz.timezone('Asia/Tokyo')
         current_time = datetime.now(tokyo_tz)
         print(f"current_time_fetch{current_time}")
-
-
-        # task_uuidに基づいて、現在の時間より前のタスクの時間情報を取得
-        cursor.execute('''
-            SELECT start_time, end_time FROM event_mappings
-            WHERE task_uuid = ? AND end_time < ?
-        ''', (task_uuid, current_time.isoformat()))
-
+        event_mappings = get_event_mappings(task_id)
         # 取得したデータをリストに格納
         task_times = []
-        for row in cursor.fetchall():
-            # SQLiteのdatetime文字列をPythonのdatetimeオブジェクトに変換
-            start_time = datetime.fromisoformat(row[0]).astimezone(tokyo_tz)
-            end_time = datetime.fromisoformat(row[1]).astimezone(tokyo_tz)
+        for row in event_mappings:
+            # RFC 2822 形式の日時文字列を解析
+            start_time = datetime.strptime(row['start_time'], '%a, %d %b %Y %H:%M:%S %Z').astimezone(tokyo_tz)
+            end_time = datetime.strptime(row['end_time'], '%a, %d %b %Y %H:%M:%S %Z').astimezone(tokyo_tz)
             task_times.append((start_time, end_time))
-
-        # データベース接続を閉じる
-        conn.close()
 
         return task_times
 
@@ -1922,18 +1952,18 @@ def open_main_app():
 
             # 選択されたタスクのインデックスを取得
             index = selected_task_index[0]
-            schedules = schedule_manager.get_schedules()  # schedule_manager からスケジュールを取得
+            schedules = get_schedules()  # schedule_manager からスケジュールを取得
 
             # 選択されたタスクのスケジュールを取得
             if 0 <= index < len(schedules):
                 selected_schedule = schedules[index]
 
                 # タスクのUUIDと所要時間を取得
-                task_uuid = selected_schedule[1]  # `task_uuid`は2番目の要素
-                task_duration = selected_schedule[2]  # `task_duration`は3番目の要素
+                task_id = selected_schedule['task_id']  # `task_uuid`は2番目の要素
+                task_duration = selected_schedule['task_duration']  # `task_duration`は3番目の要素
 
                 # タスク時間を取得
-                task_times = fetch_task_times_and_duration(task_uuid)
+                task_times = fetch_task_times_and_duration(task_id)
 
                 # 進捗を計算
                 progress_percentage = calculate_progress(task_times, task_duration)
@@ -1948,7 +1978,7 @@ def open_main_app():
         else:
             print("タスクが選択されていません。")
 
-
+    
     def animate_progress_bar(target_progress):
         current_progress = progress_bar.get()
         
@@ -2031,8 +2061,7 @@ def open_main_app():
     # update_task_listbox に schedule_manager を渡して呼び出す
     update_todo_listbox(todo_listbox)
 
-    schedule_manager.load_schedules()
-    update_schedule_listbox(schedule_listbox, schedule_manager)
+    update_schedule_listbox(schedule_listbox)
 
         # .envファイルの読み込み
     load_dotenv()

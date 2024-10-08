@@ -130,7 +130,7 @@ def auto_login(user_id):
 @main.route('/logout', methods=['POST'])
 @token_required
 def logout():
-    # セッションからユーザーが存在しているか確認
+       # セッションからユーザーが存在しているか確認
     if 'username' in session:
         print(f"Logging out user: {session['username']}")  # ログアウト時のユーザー名を確認
         session.pop('username', None)  # セッションからユーザー情報を削除
@@ -148,7 +148,6 @@ def logout():
 
     
     return response
-
 
 
 @main.route('/add_task', methods=['POST'])
@@ -242,6 +241,53 @@ def get_tasks_without_conditions(user_id):
         db.close()
 
 
+@main.route('/get_schedules', methods=['GET'])
+@token_required  # JWTの検証を行う
+def get_schedules(user_id):
+    print(f'get_schedules_user_id: {user_id}')
+    try:
+        # ユーザーの確認
+        user = db.query(User).filter_by(id=user_id).first()
+        if not user:
+            return jsonify({"error": "無効なセッションIDです"}), 401
+
+        print(f'username: {user.username}')
+
+        # task_info と task_conditions を結合し、task_conditions に task_id が存在するものを取得
+        schedules = (
+            db.query(TaskInfo.task_name, TaskConditions.task_id, TaskConditions.task_duration, 
+                     TaskConditions.start_date, TaskConditions.end_date, TaskConditions.selected_time_range,
+                     TaskConditions.selected_priority, TaskConditions.min_duration)
+            .join(TaskConditions, TaskInfo.id == TaskConditions.task_id)
+            .filter(TaskInfo.user_id == user.id)  # ユーザーIDでフィルタリング
+            .all()
+        )
+
+        # データをリストに追加
+        schedule_list = []
+        for schedule in schedules:
+            task_data = {
+                'task_name': schedule[0],  # TaskInfo.task_name
+                'task_id': schedule[1],  # TaskConditions.task_id
+                'task_duration': schedule[2],  # TaskConditions.task_duration
+                'start_date': schedule[3],  # TaskConditions.start_date
+                'end_date': schedule[4],  # TaskConditions.end_date
+                'selected_time_range': schedule[5],  # TaskConditions.selected_priority
+                'selected_priority': schedule[6],  # TaskConditions.selected_priority
+                'min_duration': schedule[7]  # TaskConditions.min_duration
+            }
+            schedule_list.append(task_data)
+
+        print(f'schedule_list: {schedule_list}')
+        return jsonify(schedule_list), 200
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        db.close()
+
 
 @main.route('/delete_todo_task', methods=['DELETE'])
 @token_required
@@ -282,6 +328,54 @@ def delete_todo_task(user_id):
     finally:
         db.close()
 
+@main.route('/get_event_mappings', methods=['POST'])
+@token_required  # JWTの検証を行う
+def get_event_mappings(user_id):
+    data = request.get_json()
+    task_id = data.get('task_id')
+    print(f'task_id: {task_id}')
+    print(f'get_event_mappings_id: {user_id}')
+
+    # 現在の時間を取得（Asia/Tokyo タイムゾーンに設定）
+    tokyo_tz = pytz.timezone('Asia/Tokyo')
+    current_time = datetime.now(tokyo_tz)
+    print(f"current_time_fetch{current_time}")
+
+    try:
+        # ユーザーの確認
+        user = db.query(User).filter_by(id=user_id).first()
+        if not user:
+            return jsonify({"error": "無効なセッションIDです"}), 401
+
+        print(f'username: {user.username}')
+
+        # EventMappingsテーブルから現在の時刻より前のstart_timeとend_timeを取得
+        events = (
+            db.query(EventMappings.start_time, EventMappings.end_time)
+            .filter(EventMappings.user_id == user_id)  # ユーザーIDでフィルタリング
+            .filter(EventMappings.task_id == task_id)  # task_idでフィルタリング
+            .filter(EventMappings.end_time < current_time)  # start_timeが現在時刻より前のもの
+            .all()
+        )
+
+        # データをリストに追加
+        event_list = []
+        for event in events:
+            event_data = {
+                'start_time': event[0],  # TaskInfo.task_name
+                'end_time': event[1],  # TaskConditions.task_id
+            }
+            event_list.append(event_data)
+
+        print(f'schedule_list: {event_list}')
+        return jsonify(event_list), 200
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        db.close()
 
 @main.route("/favicon.ico")
 def favicon():
@@ -414,7 +508,6 @@ def save_task_conditions(task_id, task_duration, start_date, end_date, selected_
     parsed_start = parser.parse(start_date)
     parsed_end = parser.parse(end_date)
 
-
     try:
         new_condition = TaskConditions(task_id=task_id, task_duration=task_duration, user_id=user.id, start_date=parsed_start, end_date=parsed_end, selected_time_range=selected_time_range, selected_priority=selected_priority, min_duration=min_duration)
                 # 作成したタスク条件をデバッグ出力
@@ -442,16 +535,14 @@ def save_task_conditions(task_id, task_duration, start_date, end_date, selected_
 
 
 @main.route('/login', methods=['POST'])
-@token_required  # JWTの検証を行う
-def login(user_id):
-    print(f'login_user_id:{user_id}')
+def login():
     data = request.get_json()
     username = data['username']
     password = data['password']
 
     
     # ユーザーをデータベースから取得
-    user = db.query(User).filter_by(id=user_id).first()
+    user = db.query(User).filter_by(username=username).first()
     
     if user and check_password_hash(user.password, password):
         # JWTトークンを生成
