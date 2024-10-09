@@ -1070,7 +1070,8 @@ def open_main_app():
     # タスク詳細を表示する関数
 
 
-    def show_schedule_details(event, schedule_manager):
+    def show_schedule_details(event):
+        
         # 選択されたタスクのインデックスを取得
         selected_index = schedule_listbox.curselection()
         
@@ -1086,7 +1087,7 @@ def open_main_app():
                 
                 # 辞書のキーに基づいてデータを取得
                 task_name = schedule['task_name']
-                task_uuid = schedule['task_id']
+                task_id = schedule['task_id']
                 task_duration = schedule['task_duration']
                 start_date = schedule['start_date']
                 end_date = schedule['end_date']
@@ -1101,18 +1102,28 @@ def open_main_app():
                     selected_priority = "低"
                 else:
                     selected_priority = str(schedule['selected_priority'])
-                
-                # ラベルにタスク詳細を表示
-                details_text = f"タスクID: {task_uuid}\n" \
-                            f"タスク名: {task_name}\n" \
-                            f"スケジュール時間: {task_duration}\n" \
-                            f"開始日: {start_date}\n" \
-                            f"終了日: {end_date}\n" \
-                            f"時間帯: {time_ranges}\n" \
-                            f"優先度: {selected_priority}\n"
+                # 現在の時間を取得するために東京タイムゾーンを設定
+                tokyo_tz = pytz.timezone('Asia/Tokyo')
+
+              # 開始日・終了日を変換して日本時間で表示
+                start_date_dt = datetime.strptime(start_date, "%a, %d %b %Y %H:%M:%S %Z")  # 文字列をdatetimeオブジェクトに変換
+                end_date_dt = datetime.strptime(end_date, "%a, %d %b %Y %H:%M:%S %Z")  # 同様に変換
+
+                # 日本時間に変換
+                start_date_jp = start_date_dt.astimezone(tokyo_tz).strftime("%Y/%m/%d %H:%M")  # フォーマット指定: YYYY/MM/DD HH:MM
+                end_date_jp = end_date_dt.astimezone(tokyo_tz).strftime("%Y/%m/%d %H:%M")  # 同様に変換
+                # 開始日と終了日を1つにまとめる
+                date_range = f"{start_date_jp} 〜 {end_date_jp}"
+
+                # 詳細テキストを作成
+                details_text = f"タスク名: {task_name}\n" \
+                               f"スケジュール時間: {task_duration}\n" \
+                               f"期間: {date_range}\n" \
+                               f"時間帯: {time_ranges}\n" \
+                               f"優先度: {selected_priority}\n"
                 
                 details_label.configure(text=details_text)
-                update_progress_bar(schedule_manager)  # プログレスバーを更新
+                update_progress_bar()  # プログレスバーを更新
             else:
                 print("無効なインデックス:", index)
         else:
@@ -1917,17 +1928,19 @@ def open_main_app():
     task_list_frame.grid_rowconfigure(0, weight=1)
     task_list_frame.grid_rowconfigure(1, weight=1)
 
-
-    schedule_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=50, height=10)  
+    # フォントのサイズを指定して、文字を大きく
+    listbox_font = ("Helvetica", 11)
+    # リストボックスを作成
+    schedule_listbox = tk.Listbox(task_list_frame, selectmode=tk.MULTIPLE, width=60, height=15, font=listbox_font)  
     schedule_listbox.grid(row=2, column=0, padx=10, pady=10, sticky="nsew")
-
+ 
     # delete_button = ctk.CTkButton(task_list_frame, text="タスク削除", command=lambda: delete_selected_task(schedule_manager, service))
     # delete_button.grid(row=10, column=0, columnspan=3, pady=20)
 
     check_button = ctk.CTkButton(task_list_frame, text="チェック", command=lambda: show_table_contents(schedule_manager))
     check_button.grid(row=11, column=0, columnspan=3, pady=20)
 
-    # タスク詳細を表示するラベル
+   # タスク詳細を表示するラベル
     details_label = ctk.CTkLabel(
         task_list_frame,
         text="タスクの詳細をここに表示",
@@ -1935,14 +1948,17 @@ def open_main_app():
         anchor="w",
         justify="left",
         fg_color="white",
-        corner_radius=5
+        corner_radius=5,
+        width=400,   # 固定幅
+        height=100   # 固定高さ
     )
     details_label.grid(row=0, column=1, padx=10, pady=(10, 0), sticky="nsew")
 
 
 
+
     # プログレスバーを更新する関数
-    def update_progress_bar(schedule_manager):
+    def update_progress_bar():
         selected_task_index = schedule_listbox.curselection()
         
         if selected_task_index:
@@ -1978,7 +1994,6 @@ def open_main_app():
         else:
             print("タスクが選択されていません。")
 
-    
     def animate_progress_bar(target_progress):
         current_progress = progress_bar.get()
         
@@ -2001,9 +2016,10 @@ def open_main_app():
     progress_bar = ctk.CTkProgressBar(task_list_frame, width=300, height=20, corner_radius=10, mode='determinate')
     progress_bar.grid(row=1, column=0, columnspan=2, padx=20, pady=10, sticky='ew')
 
-    # 進捗率を表示するラベル
+    # プログレスバーの上に進捗率を表示するラベルを設置
     progress_label = ctk.CTkLabel(task_list_frame, text="0%")
-    progress_label.grid(row=2, column=0, padx=10, pady=10)
+    progress_label.place(in_=progress_bar, relx=0.5, rely=0.5, anchor='center')  # プログレスバーの中央に配置
+
 
     def logout_user(cookies):
         logout_url = 'http://127.0.0.1:5000/logout'
@@ -2051,7 +2067,7 @@ def open_main_app():
 
 
     # ダブルクリックイベントのバインディング
-    schedule_listbox.bind('<Double-1>', lambda event: show_schedule_details(event, schedule_manager))
+    schedule_listbox.bind('<Double-1>', lambda event: show_schedule_details(event))
 
 
     # ScheduleManager のインスタンスを作成
