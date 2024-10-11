@@ -1,35 +1,28 @@
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
-
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
-from tkcalendar import DateEntry
-import customtkinter as ctk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import os.path
-import sys
-import pickle
 from datetime import datetime, timedelta, date
-import pytz
-import uuid
-import sqlite3
 from google.oauth2.credentials import Credentials
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email import message_from_bytes
 import base64
-from dotenv import load_dotenv
+import pickle
+import os.path
+import sys
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+from backend.model.models import EventMappings, TaskInfo, TaskConditions, db
+import pytz
+from sqlalchemy import and_, func
 
 load_dotenv()
 
-
-# 環境変数からメールアドレスを取得
-fromemail = os.getenv('FROMEMAIL')
 
 SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly', 
@@ -39,32 +32,11 @@ SCOPES = [
     'https://www.googleapis.com/auth/forms.responses.readonly'
 ]
 
+TOKEN_PICKLE = 'token.pickle'
 
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # HTTPSを強制しないようにする（ローカル開発用）
-client_id = os.environ['GOOGLE_CLIENT_ID']
-client_secret = os.environ['GOOGLE_CLIENT_SECRET']
-# 認可のためのスコープ
-scope = ["https://www.googleapis.com/auth/calendar"]
-
-# トークンをデータベースに保存する関数
-def save_token_to_db(user_id, credentials):
-        # バイナリ形式でシリアライズ
-    token_data = pickle.dumps(credentials)  # credentialsをバイナリデータに変換
-    print(f'user_id_passed:{user_id}')
-    # ユーザーのトークンが既に存在する場合は更新、なければ新規作成
-    user_token = db.query(Token).filter_by(user_id=user_id).first()
-    
-    if user_token:
-        user_token.token_data = token_data
-    else:
-        user_token = Token(user_id=user_id, token_data=token_data)
-        db.add(user_token)
-
-    db.commit()
-
-# トークンをデータベースから取得する関数
-def get_credentials(user_id):
-        # 実行環境に応じたファイルパスの取得
+def get_credentials():
+    creds = None
+    # 実行環境に応じたファイルパスの取得
     if getattr(sys, 'frozen', False):
         # PyInstallerでパッケージ化された場合
         base_path = sys._MEIPASS
@@ -72,35 +44,24 @@ def get_credentials(user_id):
         # 開発中の場合
         base_path = os.path.dirname(__file__)
 
-        # credentials.jsonのパスを組み立てる
+    # credentials.jsonのパスを組み立てる
     credentials_path = os.path.join(base_path, 'credentials.json')
 
-    credentials = None
-    print(f'user_id:{user_id}')
-    # データベースからユーザーのトークンを取得
-    user_token = db.query(Token).filter_by(user_id=user_id).first()
-
-    if user_token:
-        # BLOBデータをデシリアライズ
-        credentials = pickle.loads(user_token.token_data)
-        
-        # デバッグ: credentialsの内容を確認
-        print(f"Debug: Credentials for user_id {user_id}: {credentials}")
-
-    # トークンが存在しないか、期限切れの場合は新規取得
-    if not credentials or not credentials.valid:
-        if credentials and credentials.expired and credentials.refresh_token:
-            # トークンを更新
-            credentials.refresh(Request())
+    # 既にトークンが存在する場合、それを読み込む
+    if os.path.exists(TOKEN_PICKLE):
+        with open(TOKEN_PICKLE, 'rb') as token:
+            creds = pickle.load(token)
+    # トークンがないか、無効または期限切れの場合、新しく認証を行う
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
         else:
-            # 新しいトークンを取得
-            flow = InstalledAppFlow.from_client_secrets_file(credentials_path, scope)
-            credentials = flow.run_local_server(port=0)
-
-        # 新しいトークンをデータベースに保存
-        save_token_to_db(user_id, credentials)
-
-    return credentials
+            flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
+            creds = flow.run_local_server(port=0)
+        # トークンを保存
+        with open(TOKEN_PICKLE, 'wb') as token:
+            pickle.dump(creds, token)
+    return creds
 
 def get_gmail_service():
     creds = get_credentials()
@@ -113,9 +74,6 @@ def get_forms_service():
     forms_service = build('forms', 'v1', credentials=creds)
     return forms_service
 
-
-
-
 def create_message(sender, to, subject, body):
     """メールを作成する"""
     message = MIMEMultipart('alternative')
@@ -126,6 +84,7 @@ def create_message(sender, to, subject, body):
     # HTML部分の作成
     part = MIMEText(body, 'html')
     message.attach(part)
+
 
     raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
     return {'raw': raw_message}
@@ -159,29 +118,31 @@ def send_message(service, sender, to, subject, body):
         return None
 
 
-# def on_send_button_click(user_id, form_link):
-#     # Gmailサービスを取得
-#     service = get_gmail_service()
 
-#     # HTML形式でタスクのチェックボックス付きメール本文を作成
-#     body = '<p>達成できなかったタスクにチェックを付けて、メールを返信してください:</p>'
-#     body += '<ul>'
+def on_send_button_click():
+    # Gmailサービスを取得
+    service = get_gmail_service()
+    form_link = create_form()
+
+    # HTML形式でタスクのチェックボックス付きメール本文を作成
+    body = '<p>達成できなかったタスクにチェックを付けて、メールを返信してください:</p>'
+    body += '<ul>'
     
-#      # メール本文にフォームリンクを追加
-#     body = f'<p>本日のタスク達成状況を以下のリンクから記入してください。</p><a href="{form_link}">Googleフォームリンク</a>'
+     # メール本文にフォームリンクを追加
+    body = f'<p>本日のタスク達成状況を以下のリンクから記入してください。</p><a href="{form_link}">Googleフォームリンク</a>'
 
-#         # 環境変数からメールアドレスを取得
-#     fromemail = os.getenv('FROMEMAIL')
-#     toemail = get_user_email(user_id)  # ユーザーIDからメールアドレスを取得する関数
-#     print(f"fromemail: {fromemail} toemail: {toemail}")
+        # 環境変数からメールアドレスを取得
+    fromemail = os.getenv('FROMEMAIL')
+    toemail = os.getenv('FROMEMAIL')  # ユーザーIDからメールアドレスを取得する関数
+    print(f"fromemail: {fromemail} toemail: {toemail}")
 
-#     # メールを送信
-#     sender = fromemail  # 送信者のメールアドレス
-#     recipient = toemail  # 受信者のメールアドレス
-#     subject = '本日のタスク達成状況'
-#     send_message(service, sender, recipient, subject, body)
+    # メールを送信
+    sender = fromemail  # 送信者のメールアドレス
+    recipient = toemail  # 受信者のメールアドレス
+    subject = '本日のタスク達成状況'
+    send_message(service, sender, recipient, subject, body)
    
-#     print("メールが送信されました")
+    print("メールが送信されました")
 
 # # ユーザーIDからメールアドレスを取得する関数
 # def get_user_email(user_id):
@@ -200,12 +161,48 @@ def send_message(service, sender, to, subject, body):
 #     finally:
 #         conn.close()
 
+# タスクを取得する関数
+def get_today_tasks():
+    # 今日の日付を取得（ローカルタイムゾーン）
+    today = datetime.now(pytz.timezone('Asia/Tokyo')).date()
+    
+    # YYYY-MM-DD 形式に変換
+    today_str = today.strftime('%Y-%m-%d')
 
+    # SQLAlchemyクエリを使用して、今日のタスクを取得
+    tasks_details = (
+        db.query(
+            TaskInfo.task_name,
+            EventMappings.event_id,
+            EventMappings.start_time,
+            EventMappings.end_time,
+            TaskConditions.task_duration,
+            TaskConditions.start_date,
+            TaskConditions.end_date,
+            TaskConditions.selected_time_range,
+            TaskConditions.selected_priority,
+            TaskConditions.min_duration
+        )
+        .join(EventMappings, TaskInfo.id == EventMappings.task_id)
+        .join(TaskConditions, TaskInfo.id == TaskConditions.task_id)
+        .filter(func.date(EventMappings.start_time) == today_str)
+        .all()
+    )
+
+    # 結果をループして表示
+    for details in tasks_details:
+        print(f"Task Name: {details[0]}, Event ID: {details[1]}, Start Time: {details[2]}, End Time: {details[3]}, "
+              f"Task Duration: {details[4]}, Start Date: {details[5]}, End Date: {details[6]}, "
+              f"Selected Time Range: {details[7]}, Selected Priority: {details[8]}, Min Duration: {details[9]}")
+
+    # タスクの詳細情報を返す
+    return tasks_details
+    
 #フォームの作成
-def create_form(tasks):
+def create_form():
     service = get_forms_service()
      # 今日のタスクを取得
-    
+    tasks = get_today_tasks()
 # フォームを作成
     form = {
         "info": {
