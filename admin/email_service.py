@@ -17,7 +17,12 @@ import sys
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
-from backend.model.models import EventMappings, TaskInfo, TaskConditions, db
+# プロジェクトのルートディレクトリ（root）をsys.pathに追加
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# これでbackend.model.modelsがインポートできる
+from backend.model.models import db, EventMappings, TaskInfo, TaskConditions
+
 import pytz
 from sqlalchemy import and_, func
 
