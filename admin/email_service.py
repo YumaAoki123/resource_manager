@@ -21,8 +21,8 @@ from googleapiclient.discovery import build
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # これでbackend.model.modelsがインポートできる
-from backend.model.models import db, EventMappings, TaskInfo, TaskConditions
-
+from backend.model.models import db, EventMappings, TaskInfo, TaskConditions, User
+from sqlalchemy.exc import SQLAlchemyError
 import pytz
 from sqlalchemy import and_, func
 
@@ -165,17 +165,16 @@ def on_send_button_click():
 #         return None
 #     finally:
 #         conn.close()
-import logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
 # タスクを取得する関数
 def get_today_tasks(user_id=1):
     # 今日の日付を取得（ローカルタイムゾーン）
     today = datetime.now(pytz.timezone('Asia/Tokyo')).date()
-    logging.debug(f"Today's date: {today}")
+    print(f"Today's date: {today}")
     
     # YYYY-MM-DD 形式に変換
     today_str = today.strftime('%Y-%m-%d')
-    logging.debug(f"Today's date (formatted): {today_str}")
+    print(f"Today's date (formatted): {today_str}")
     
     # SQLAlchemyクエリを使用して、今日のタスクを取得
     tasks_details = (
@@ -198,18 +197,48 @@ def get_today_tasks(user_id=1):
         .all()
     )
     
-    logging.debug(f"Query result: {tasks_details}")
+    print(f"Query result: {tasks_details}")
     
     # 結果をループして表示
     for details in tasks_details:
-        logging.info(f"Task Name: {details[0]}, Event ID: {details[1]}, Start Time: {details[2]}, End Time: {details[3]}, "
+        print(f"Task Name: {details[0]}, Event ID: {details[1]}, Start Time: {details[2]}, End Time: {details[3]}, "
                      f"Task Duration: {details[4]}, Start Date: {details[5]}, End Date: {details[6]}, "
                      f"Selected Time Range: {details[7]}, Selected Priority: {details[8]}, Min Duration: {details[9]}")
 
     # タスクの詳細情報を返す
     return tasks_details
 
-    
+
+def get_all_usernames():
+    try:
+        # User テーブルからすべてのユーザーの username を取得
+        usernames = db.query(User.username).all()
+
+        if not usernames:
+            print("No usernames found in the database.")
+            return []
+
+        # 結果をループして表示
+        for username in usernames:
+            print(f"Username: {username[0]}")
+
+        # ユーザー名のリストを返す
+        return [username[0] for username in usernames]
+
+    except SQLAlchemyError as e:
+        # SQLAlchemy関連のエラーをキャッチ
+        print(f"A database error occurred: {e}")
+        return []
+        
+    except Exception as e:
+        # 一般的なエラーをキャッチ
+        print(f"An error occurred: {e}")
+        return []
+
+    finally:
+        # セッションを閉じる
+        db.close()
+
 #フォームの作成
 def create_form():
     service = get_forms_service()
