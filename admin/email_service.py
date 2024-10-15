@@ -166,47 +166,54 @@ def on_send_button_click():
 #     finally:
 #         conn.close()
 
+from sqlalchemy.orm.exc import NoResultFound
+from sqlalchemy.exc import SQLAlchemyError
+
 # タスクを取得する関数
 def get_today_tasks(user_id=1):
-    # 今日の日付を取得（ローカルタイムゾーン）
-    today = datetime.now(pytz.timezone('Asia/Tokyo')).date()
-    print(f"Today's date: {today}")
-    
-    # YYYY-MM-DD 形式に変換
-    today_str = today.strftime('%Y-%m-%d')
-    print(f"Today's date (formatted): {today_str}")
-    
-    # SQLAlchemyクエリを使用して、今日のタスクを取得
-    tasks_details = (
-        db.query(
-            TaskInfo.task_name,
-            EventMappings.event_id,
-            EventMappings.start_time,
-            EventMappings.end_time,
-            TaskConditions.task_duration,
-            TaskConditions.start_date,
-            TaskConditions.end_date,
-            TaskConditions.selected_time_range,
-            TaskConditions.selected_priority,
-            TaskConditions.min_duration
+    try:
+        # SQLAlchemyクエリを使用して、userid=1のusername, task_name, event_id, start_time, end_time, task_durationなどを取得
+        tasks_details = (
+            db.query(
+                User.username,
+                TaskInfo.task_name,
+                EventMappings.event_id,
+                EventMappings.start_time,
+                EventMappings.end_time,
+                TaskConditions.task_duration,
+                TaskConditions.start_date,
+                TaskConditions.end_date,
+                TaskConditions.selected_time_range,
+                TaskConditions.selected_priority,
+                TaskConditions.min_duration
+            )
+            # Joinを使って各テーブルを関連付け
+            .join(TaskInfo, User.id == TaskInfo.user_id)  # UserとTaskInfoの関連付け
+            .join(EventMappings, TaskInfo.id == EventMappings.task_id)  # TaskInfoとEventMappingsの関連付け
+            .join(TaskConditions, TaskInfo.id == TaskConditions.task_id)  # TaskInfoとTaskConditionsの関連付け
+            .filter(User.id == user_id)  # user_idでフィルタリング
+            .all()
         )
-        .join(EventMappings, TaskInfo.id == EventMappings.task_id)
-        .join(TaskConditions, TaskInfo.id == TaskConditions.task_id)
-        .filter(EventMappings.user_id == user_id)  # user_idをフィルタリング
-        .filter(func.date(EventMappings.start_time) == today_str)  # 日付でフィルタリング
-        .all()
-    )
-    
-    print(f"Query result: {tasks_details}")
-    
-    # 結果をループして表示
-    for details in tasks_details:
-        print(f"Task Name: {details[0]}, Event ID: {details[1]}, Start Time: {details[2]}, End Time: {details[3]}, "
-                     f"Task Duration: {details[4]}, Start Date: {details[5]}, End Date: {details[6]}, "
-                     f"Selected Time Range: {details[7]}, Selected Priority: {details[8]}, Min Duration: {details[9]}")
+        
+        if not tasks_details:
+            print(f"No tasks found for user with id {user_id}.")
+            return None
+        
+        # 結果をループして表示
+        for details in tasks_details:
+            print(f"User: {details[0]}, Task Name: {details[1]}, Event ID: {details[2]}, "
+                  f"Start Time: {details[3]}, End Time: {details[4]}, Task Duration: {details[5]}, "
+                  f"Start Date: {details[6]}, End Date: {details[7]}, "
+                  f"Selected Time Range: {details[8]}, Selected Priority: {details[9]}, Min Duration: {details[10]}")
+        
+        # タスクの詳細情報を返す
+        return tasks_details
 
-    # タスクの詳細情報を返す
-    return tasks_details
+    except SQLAlchemyError as e:
+        # データベースに関するエラーハンドリング
+        print(f"Database error occurred: {str(e)}")
+        return None
+
 
 
 def get_all_usernames():
