@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, DateTime, LargeBinary
 from sqlalchemy.ext.declarative import declarative_base
 # SQLiteエンジンを作成
-engine = create_engine('sqlite:///resource_manager.db')
+engine = create_engine('sqlite:///../backend/resource_manager.db')
 # ベースクラスを作成
 Base = declarative_base()
 
