@@ -25,7 +25,7 @@ from backend.model.models import db, EventMappings, TaskInfo, TaskConditions, Us
 from sqlalchemy.exc import SQLAlchemyError
 import pytz
 from sqlalchemy import and_, func
-
+from sqlalchemy import Date
 load_dotenv()
 
 
@@ -138,7 +138,7 @@ def on_send_button_click():
 
         # 環境変数からメールアドレスを取得
     fromemail = os.getenv('FROMEMAIL')
-    toemail = os.getenv('FROMEMAIL')  # ユーザーIDからメールアドレスを取得する関数
+    toemail = os.getenv('TOEMAIL')  # ユーザーIDからメールアドレスを取得する関数
     print(f"fromemail: {fromemail} toemail: {toemail}")
 
     # メールを送信
@@ -171,6 +171,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 # タスクを取得する関数
 def get_today_tasks(user_id=1):
+    # 今日の日付を取得（ローカルタイムゾーン）
+    today = datetime.now(pytz.timezone('Asia/Tokyo')).date()
+    print(f"Today's date: {today}")
     try:
         # SQLAlchemyクエリを使用して、userid=1のusername, task_name, event_id, start_time, end_time, task_durationなどを取得
         tasks_details = (
@@ -192,6 +195,7 @@ def get_today_tasks(user_id=1):
             .join(EventMappings, TaskInfo.id == EventMappings.task_id)  # TaskInfoとEventMappingsの関連付け
             .join(TaskConditions, TaskInfo.id == TaskConditions.task_id)  # TaskInfoとTaskConditionsの関連付け
             .filter(User.id == user_id)  # user_idでフィルタリング
+            
             .all()
         )
         
@@ -265,10 +269,10 @@ def create_form():
     # タスク項目を追加 (batchUpdate)
     requests = []
     for idx, task in enumerate(tasks):
-        task_name = task[0]
-        start_time = task[2]
-        end_time = task[3]
-        priority = task[8]
+        task_name = task[1]
+        start_time = task[3]
+        end_time = task[4]
+        priority = task[9]
         
         question_title = f"{task_name} (開始: {start_time}, 終了: {end_time}, 優先度: {priority})"
         
