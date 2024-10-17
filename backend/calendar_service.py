@@ -17,8 +17,7 @@ from google.oauth2.credentials import Credentials
 
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # HTTPSを強制しないようにする（ローカル開発用）
-client_id = os.environ['GOOGLE_CLIENT_ID']
-client_secret = os.environ['GOOGLE_CLIENT_SECRET']
+
 # 認可のためのスコープ
 scope = ["https://www.googleapis.com/auth/calendar"]
 
