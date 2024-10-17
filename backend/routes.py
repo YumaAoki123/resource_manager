@@ -1,6 +1,5 @@
 from flask import Blueprint,Flask, request, jsonify, session, redirect, url_for, render_template, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
-from email_service import create_form
 from calendar_service import calculate_free_times, get_credentials
 from dotenv import load_dotenv
 from model.models import Base, User, db, TaskInfo, TaskConditions, EventMappings,Token
@@ -31,8 +30,7 @@ import json
 from dateutil import parser
 # クライアントIDとクライアントシークレットを環境変数から取得する
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # HTTPSを強制しないようにする（ローカル開発用）
-client_id = os.environ['GOOGLE_CLIENT_ID']
-client_secret = os.environ['GOOGLE_CLIENT_SECRET']
+
 redirect_uri = "http://127.0.0.1:5000/callback"
 
 # 認可のためのスコープ

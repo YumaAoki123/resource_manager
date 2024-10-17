@@ -25,7 +25,7 @@ from backend.model.models import db, EventMappings, TaskInfo, TaskConditions, Us
 from sqlalchemy.exc import SQLAlchemyError
 import pytz
 from sqlalchemy import and_, func
-from sqlalchemy import Date
+from sqlalchemy import cast, Date
 load_dotenv()
 
 
@@ -195,6 +195,7 @@ def get_today_tasks(user_id=1):
             .join(EventMappings, TaskInfo.id == EventMappings.task_id)  # TaskInfoとEventMappingsの関連付け
             .join(TaskConditions, TaskInfo.id == TaskConditions.task_id)  # TaskInfoとTaskConditionsの関連付け
             .filter(User.id == user_id)  # user_idでフィルタリング
+            .filter(cast(EventMappings.start_time, Date) == today)  # start_timeが今日の日付と一
             
             .all()
         )
