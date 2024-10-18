@@ -24,7 +24,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.model.models import db, EventMappings, TaskInfo, TaskConditions, User
 from sqlalchemy.exc import SQLAlchemyError
 import pytz
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, DATE
 from sqlalchemy import cast, Date
 load_dotenv()
 
@@ -170,10 +170,13 @@ from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.exc import SQLAlchemyError
 
 # タスクを取得する関数
-def get_today_tasks(user_id=1):
+def get_today_tasks(user_id=2):
     # 今日の日付を取得（ローカルタイムゾーン）
     today = datetime.now(pytz.timezone('Asia/Tokyo')).date()
     print(f"Today's date: {today}")
+        # YYYY-MM-DD 形式に変換
+    today_str = today.strftime('%Y-%m-%d')
+    print(f"Today's date (formatted): {today_str}")
     try:
         # SQLAlchemyクエリを使用して、userid=1のusername, task_name, event_id, start_time, end_time, task_durationなどを取得
         tasks_details = (
@@ -195,7 +198,7 @@ def get_today_tasks(user_id=1):
             .join(EventMappings, TaskInfo.id == EventMappings.task_id)  # TaskInfoとEventMappingsの関連付け
             .join(TaskConditions, TaskInfo.id == TaskConditions.task_id)  # TaskInfoとTaskConditionsの関連付け
             .filter(User.id == user_id)  # user_idでフィルタリング
-            .filter(cast(EventMappings.start_time, Date) == today)  # start_timeが今日の日付と一
+            .filter(func.DATE(EventMappings.start_time) == today)  # 日付の部分だけを抽出して比較
             
             .all()
         )
@@ -204,7 +207,7 @@ def get_today_tasks(user_id=1):
             print(f"No tasks found for user with id {user_id}.")
             return None
         
-        # 結果をループして表示
+        
         for details in tasks_details:
             print(f"User: {details[0]}, Task Name: {details[1]}, Event ID: {details[2]}, "
                   f"Start Time: {details[3]}, End Time: {details[4]}, Task Duration: {details[5]}, "
