@@ -2061,8 +2061,42 @@ def open_main_app():
     jwt = load_jwt()
     
     logout_button = ctk.CTkButton(user_information_frame, text="ログアウト", command=lambda:logout_user(jwt))
-    logout_button.grid(row=1, column=0, padx=10, pady=5, sticky="w")
+    logout_button.grid(row=3, column=0, padx=10, pady=5, sticky="w")
     
+    email_label = ctk.CTkLabel(user_information_frame, text="Email:")
+    email_label.grid(row=0, column=0, padx=10, pady=5, sticky="w")
+    email_entry = ctk.CTkEntry(user_information_frame, width=50)
+    email_entry.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
+
+    def registar_email():
+        emali = email_entry.get()
+        try:
+            jwt = load_jwt()
+            
+            # HTTPヘッダーにJWTを含める
+            headers = {
+                'Authorization': f'Bearer {jwt}'
+            }
+            data = {
+                'emali':emali
+            }
+            # サーバーから条件のないタスクを取得
+            response = requests.post('http://127.0.0.1:5000/registar_email', json=data, headers=headers)
+        
+            if response.status_code == 200:
+                event_mappings = response.json()
+                print(f"event_mappings: {event_mappings}")
+                return event_mappings  # スケジュールリストを返す
+                
+            else:
+                print(f"エラー: {response.json().get('error')}")
+                return []
+        except requests.RequestException as e:
+            print(f"リクエストエラー: {e}")
+            return []
+        
+    email_registar_button = ctk.CTkButton(user_information_frame, text="Registar Email", command=registar_email)
+    email_registar_button.grid(row=1, column=0, padx=10, pady=5, sticky="w")
 
 
 

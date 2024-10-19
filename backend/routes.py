@@ -549,6 +549,24 @@ def login():
     else:
         return jsonify({'message': 'Invalid credentials'}), 401
 
+@main.route('/register_email', methods=['POST'])
+def registar_email():
+    data = request.get_json()
+    email = data.get('email')
+
+    new_email = User(email=email)
+
+    try:
+        # データベースに新しいユーザーを追加
+        db.add(new_email)
+        db.commit()
+        return jsonify({
+        'message': 'Email registered successfully',
+    }), 201
+    except IntegrityError:
+        db.rollback()
+        return jsonify({"error": "Email already exists"}), 409
+    
 # 保護されたエンドポイント
 @main.route('/protected', methods=['GET'])
 def protected():
