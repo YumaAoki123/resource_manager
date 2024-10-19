@@ -41,10 +41,9 @@ class TaskInfo(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     task_name = Column(String(100), nullable=False)
-    
+    email = Column(String(100), nullable=True)
     # ユーザーIDへの外部キー
     user_id = Column(Integer, ForeignKey('users.id'))
-    
     # 一対多のリレーションシップ
     user = relationship('User', back_populates='tasks')
     conditions = relationship('TaskConditions', back_populates='task')

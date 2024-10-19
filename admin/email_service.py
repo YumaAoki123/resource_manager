@@ -179,7 +179,7 @@ def get_today_tasks(user_id=2):
     print(f"Today's date (formatted): {today_str}")
     try:
         # SQLAlchemyクエリを使用して、userid=1のusername, task_name, event_id, start_time, end_time, task_durationなどを取得
-        tasks_details = (
+        today_tasks = (
             db.query(
                 User.username,
                 TaskInfo.task_name,
@@ -203,19 +203,19 @@ def get_today_tasks(user_id=2):
             .all()
         )
         
-        if not tasks_details:
+        if not today_tasks:
             print(f"No tasks found for user with id {user_id}.")
             return None
         
         
-        for details in tasks_details:
+        for details in today_tasks:
             print(f"User: {details[0]}, Task Name: {details[1]}, Event ID: {details[2]}, "
                   f"Start Time: {details[3]}, End Time: {details[4]}, Task Duration: {details[5]}, "
                   f"Start Date: {details[6]}, End Date: {details[7]}, "
                   f"Selected Time Range: {details[8]}, Selected Priority: {details[9]}, Min Duration: {details[10]}")
         
         # タスクの詳細情報を返す
-        return tasks_details
+        return today_tasks
 
     except SQLAlchemyError as e:
         # データベースに関するエラーハンドリング
@@ -223,44 +223,13 @@ def get_today_tasks(user_id=2):
         return None
 
 
-
-def get_all_usernames():
-    try:
-        # User テーブルからすべてのユーザーの username を取得
-        usernames = db.query(User.username).all()
-
-        if not usernames:
-            print("No usernames found in the database.")
-            return []
-
-        # 結果をループして表示
-        for username in usernames:
-            print(f"Username: {username[0]}")
-
-        # ユーザー名のリストを返す
-        return [username[0] for username in usernames]
-
-    except SQLAlchemyError as e:
-        # SQLAlchemy関連のエラーをキャッチ
-        print(f"A database error occurred: {e}")
-        return []
-        
-    except Exception as e:
-        # 一般的なエラーをキャッチ
-        print(f"An error occurred: {e}")
-        return []
-
-    finally:
-        # セッションを閉じる
-        db.close()
-
 #フォームの作成
 def create_form():
     service = get_forms_service()
      # 今日のタスクを取得
-    tasks = get_today_tasks()
+    today_tasks = get_today_tasks()
 
-    print(f'tasks:{tasks}')
+    print(f'tasks:{today_tasks}')
 # フォームを作成
     form = {
         "info": {
@@ -272,7 +241,7 @@ def create_form():
     
     # タスク項目を追加 (batchUpdate)
     requests = []
-    for idx, task in enumerate(tasks):
+    for idx, task in enumerate(today_tasks):
         task_name = task[1]
         start_time = task[3]
         end_time = task[4]
