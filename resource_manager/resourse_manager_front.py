@@ -2069,7 +2069,9 @@ def open_main_app():
     email_entry.grid(row=0, column=1, padx=10, pady=5, sticky="ew")
 
     def registar_email():
-        emali = email_entry.get()
+        email = email_entry.get()
+
+        print(f'email:{email}')
         try:
             jwt = load_jwt()
             
@@ -2078,7 +2080,7 @@ def open_main_app():
                 'Authorization': f'Bearer {jwt}'
             }
             data = {
-                'emali':emali
+                'email':email
             }
             # サーバーから条件のないタスクを取得
             response = requests.post('http://127.0.0.1:5000/registar_email', json=data, headers=headers)
