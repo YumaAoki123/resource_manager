@@ -17,7 +17,8 @@ class User(Base):
     username = Column(String, unique=True, nullable=False)
     password = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))  # デフォルトで現在時刻を設定
-
+    email = Column(String(100), nullable=True)
+    
     # タスクとのリレーションシップ
     tasks = relationship("TaskInfo", back_populates="user")
     # Tokenとの一対一のリレーションシップ
@@ -41,7 +42,7 @@ class TaskInfo(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     task_name = Column(String(100), nullable=False)
-    email = Column(String(100), nullable=True)
+    
     # ユーザーIDへの外部キー
     user_id = Column(Integer, ForeignKey('users.id'))
     # 一対多のリレーションシップ

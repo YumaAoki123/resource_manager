@@ -549,34 +549,41 @@ def login():
     else:
         return jsonify({'message': 'Invalid credentials'}), 401
 
-@main.route('/register_email', methods=['POST'])
-def registar_email():
+@main.route('/registar_email', methods=['POST'])
+@token_required
+def registar_email(user_id):
     data = request.get_json()
     email = data.get('email')
 
-    new_email = User(email=email)
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
 
+    print(f'email: {email}')
+
+    # user_id に基づいてユーザーを検索
+    user = db.query(User).filter_by(id=user_id).first()
+    
+    if not user:
+        return jsonify({"error": "Invalid user ID"}), 401
+    
     try:
-        # データベースに新しいユーザーを追加
-        db.add(new_email)
+        # メールアドレスをユーザーに保存
+        user.email = email
         db.commit()
+
         return jsonify({
-        'message': 'Email registered successfully',
-    }), 201
+            'message': 'Email registered successfully',
+        }), 200
+
     except IntegrityError:
         db.rollback()
         return jsonify({"error": "Email already exists"}), 409
+
+    finally:
+        db.close()
+
     
-# 保護されたエンドポイント
-@main.route('/protected', methods=['GET'])
-def protected():
-    auth_header = request.headers.get('Authorization')
-    if auth_header:
-        token = auth_header.split(" ")[1]  # "Bearer <token>" からトークン部分を取り出す
-        user_id = token_required(token)
-        if user_id:
-            return jsonify({'message': f'Hello, user {user_id}!'})
-    return jsonify({'message': 'Unauthorized'}), 401
+
 
 # @main.route('/submit-tasks', methods=['POST'])
 # def submit_tasks():
