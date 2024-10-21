@@ -122,32 +122,60 @@ def send_message(service, sender, to, subject, body):
         print(f"エラーが発生しました: {e}")
         return None
 
+def check_email():
+    # 環境変数から送信者のメールアドレスを取得
+    fromemail = os.getenv('FROMEMAIL')
+    
+    # データベースから全ユーザーのメールアドレスを取得する
+    users = db.query(User).all()  # すべてのユーザーを取得
+    for user in users:
+        toemail = user.email  # 各ユーザーのメールアドレスを取得
+        print(f"fromemail: {fromemail}, toemail: {toemail}")
 
 
+
+
+# メール送信ボタンがクリックされたときに呼ばれる関数
 def on_send_button_click():
     # Gmailサービスを取得
-    service = get_gmail_service()
-    form_link = create_form()
-
-    # HTML形式でタスクのチェックボックス付きメール本文を作成
-    body = '<p>達成できなかったタスクにチェックを付けて、メールを返信してください:</p>'
-    body += '<ul>'
-    
-     # メール本文にフォームリンクを追加
-    body = f'<p>本日のタスク達成状況を以下のリンクから記入してください。</p><a href="{form_link}">Googleフォームリンク</a>'
-
-        # 環境変数からメールアドレスを取得
+    gmail_service = get_gmail_service()
+    from_service = get_forms_service()
+    # 環境変数から送信者のメールアドレスを取得
     fromemail = os.getenv('FROMEMAIL')
-    toemail = os.getenv('TOEMAIL')  # ユーザーIDからメールアドレスを取得する関数
-    print(f"fromemail: {fromemail} toemail: {toemail}")
+    
+    # データベースからすべてのユーザーを取得
+    users = db.query(User).all()  # すべてのユーザーを取得
+    
+    for user in users:
+        user_id = user.id
+        toemail = user.email  # 各ユーザーのメールアドレスを取得
+        print(f"fromemail: {fromemail}, toemail: {toemail}")
 
-    # メールを送信
-    sender = fromemail  # 送信者のメールアドレス
-    recipient = toemail  # 受信者のメールアドレス
-    subject = '本日のタスク達成状況'
-    send_message(service, sender, recipient, subject, body)
-   
-    print("メールが送信されました")
+        # ユーザーごとにフォームリンクを作成
+        form_link = create_form(user_id, from_service)
+        
+                # タスクがない場合、次のユーザーに移る
+        if not form_link:
+            print(f"{user.username} のタスクが見つからなかったため、メールは送信されません。")
+            continue
+
+        # HTML形式でタスクのチェックボックス付きメール本文を作成
+        body = '<p>達成できなかったタスクにチェックを付けて、メールを返信してください:</p>'
+        body += '<ul>'
+
+        # メール本文にフォームリンクを追加
+        body += f'<p>本日のタスク達成状況を以下のリンクから記入してください。</p><a href="{form_link}">Googleフォームリンク</a>'
+
+        # 「心当たりがない場合は破棄してください」というメッセージを追加
+        body += '<p>※このメールに心当たりがない場合は破棄してください。</p>'
+
+        # メールを送信
+        sender = fromemail  # 送信者のメールアドレス
+        recipient = toemail  # 受信者のメールアドレス
+        subject = '本日のタスク達成状況'
+        send_message(gmail_service, sender, recipient, subject, body)
+        
+        print(f"{user.username} にメールが送信されました")
 
 # # ユーザーIDからメールアドレスを取得する関数
 # def get_user_email(user_id):
@@ -170,15 +198,16 @@ from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.exc import SQLAlchemyError
 
 # タスクを取得する関数
-def get_today_tasks(user_id=2):
-    # 今日の日付を取得（ローカルタイムゾーン）
+def get_today_tasks(user_id):
+    # 今日の日付を取得（日本時間）
     today = datetime.now(pytz.timezone('Asia/Tokyo')).date()
     print(f"Today's date: {today}")
-        # YYYY-MM-DD 形式に変換
+    # YYYY-MM-DD 形式に変換
     today_str = today.strftime('%Y-%m-%d')
     print(f"Today's date (formatted): {today_str}")
+    
     try:
-        # SQLAlchemyクエリを使用して、userid=1のusername, task_name, event_id, start_time, end_time, task_durationなどを取得
+        # SQLAlchemyクエリを使用して、user_idに基づいてタスクを取得
         today_tasks = (
             db.query(
                 User.username,
@@ -197,8 +226,8 @@ def get_today_tasks(user_id=2):
             .join(TaskInfo, User.id == TaskInfo.user_id)  # UserとTaskInfoの関連付け
             .join(EventMappings, TaskInfo.id == EventMappings.task_id)  # TaskInfoとEventMappingsの関連付け
             .join(TaskConditions, TaskInfo.id == TaskConditions.task_id)  # TaskInfoとTaskConditionsの関連付け
-            .filter(User.id == user_id)  # user_idでフィルタリング
-            .filter(func.DATE(EventMappings.start_time) == today)  # 日付の部分だけを抽出して比較
+            .filter(User.id == user_id)  # 指定されたuser_idでフィルタリング
+            .filter(func.DATE(EventMappings.start_time) == today)  # イベントの日付でフィルタリング
             
             .all()
         )
@@ -207,7 +236,7 @@ def get_today_tasks(user_id=2):
             print(f"No tasks found for user with id {user_id}.")
             return None
         
-        
+        # 取得したタスクの詳細を出力（デバッグ用）
         for details in today_tasks:
             print(f"User: {details[0]}, Task Name: {details[1]}, Event ID: {details[2]}, "
                   f"Start Time: {details[3]}, End Time: {details[4]}, Task Duration: {details[5]}, "
@@ -223,11 +252,22 @@ def get_today_tasks(user_id=2):
         return None
 
 
+    except SQLAlchemyError as e:
+        # データベースに関するエラーハンドリング
+        print(f"Database error occurred: {str(e)}")
+        return None
+
+
 #フォームの作成
-def create_form():
-    service = get_forms_service()
+def create_form(user_id, from_service):
+    
      # 今日のタスクを取得
-    today_tasks = get_today_tasks()
+    today_tasks = get_today_tasks(user_id)
+
+    print(f'tasks:{today_tasks}')
+        # タスクがない場合は何も返さない
+    if not today_tasks:
+        return None
 
     print(f'tasks:{today_tasks}')
 # フォームを作成
@@ -236,7 +276,7 @@ def create_form():
             "title": "今日のタスク達成状況",
         }
     }
-    result = service.forms().create(body=form).execute()
+    result = from_service.forms().create(body=form).execute()
     form_id = result['formId']
     
     # タスク項目を追加 (batchUpdate)
@@ -279,7 +319,7 @@ def create_form():
   
     # バッチ更新リクエストを実行
     batch_update_request = {"requests": requests}
-    service.forms().batchUpdate(formId=form_id, body=batch_update_request).execute()
+    from_service.forms().batchUpdate(formId=form_id, body=batch_update_request).execute()
 
     # フォームのリンクを返す
     form_link = f"https://docs.google.com/forms/d/{form_id}/viewform"
