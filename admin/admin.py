@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import pickle
 import os.path
 import sys
-from email_service import on_send_button_click
+from email_service import on_send_button_click, check_email
 
 load_dotenv()
 
@@ -68,8 +68,8 @@ class AdminApp(tk.Tk):
         dashboard_frame = tk.Frame(self)
         dashboard_frame.pack(pady=50)
 
-        # 認証開始ボタン
-        start_auth_button = tk.Button(dashboard_frame, text="認証開始", command=on_send_button_click)
+        # タスクメール送信ボタン(テスト用)
+        start_auth_button = tk.Button(dashboard_frame, text="メール一斉送信", command=on_send_button_click)
         start_auth_button.pack(pady=20)
 
        
