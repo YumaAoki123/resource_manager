@@ -2096,12 +2096,33 @@ def open_main_app():
         except requests.RequestException as e:
             print(f"リクエストエラー: {e}")
             return []
-        
+
     email_registar_button = ctk.CTkButton(user_information_frame, text="Registar Email", command=registar_email)
     email_registar_button.grid(row=1, column=0, padx=10, pady=5, sticky="w")
 
 
+    def on_signup_button_click():
+        # サインアップのためのリクエストをバックエンドに送信
+        response = requests.post('http://127.0.0.1:5000/auth_url')
+        
+        if response.status_code == 200:
+            auth_url = response.json().get('auth_url')
+            # ブラウザを開いて認証を行う
+            webbrowser.open(auth_url)
+            
+            # 認証後、リダイレクトされるリダイレクトURIを監視
+            # ここでリダイレクトを処理し、IDトークンを取得する必要があります。
+            # 具体的には、別のエンドポイントを用意し、リダイレクトURIで取得した認可コードを処理する必要があります。
+            
+            # IDトークンを保存する処理を追加
+            # 例えば、トークンを取得してファイルに保存するなど
+            # with open('token.json', 'w') as f:
+            #     json.dump({'id_token': id_token}, f)
 
+
+    authorization_button = ctk.CTkButton(user_information_frame, text="authorization", command=on_signup_button_click)
+    authorization_button.grid(row=2, column=0, padx=10, pady=5, sticky="w")
+   
     # ダブルクリックイベントのバインディング
     schedule_listbox.bind('<Double-1>', lambda event: show_schedule_details(event))
 
