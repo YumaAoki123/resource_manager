@@ -28,10 +28,14 @@ from functools import wraps
 from google.oauth2.credentials import Credentials
 import json
 from dateutil import parser
+import urllib.parse
 # クライアントIDとクライアントシークレットを環境変数から取得する
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # HTTPSを強制しないようにする（ローカル開発用）
 
-redirect_uri = "http://127.0.0.1:5000/callback"
+# 環境変数からクライアントIDとリダイレクトURIを取得
+CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+REDIRECT_URI = os.getenv("REDIRECT_URIS")
+SCOPE = "openid email profile"
 
 # 認可のためのスコープ
 scope = ["https://www.googleapis.com/auth/calendar"]
@@ -583,7 +587,18 @@ def registar_email(user_id):
         db.close()
 
     
-
+@main.route('/auth_url', methods=['POST'])
+def get_auth_url():
+    state = "some_unique_state"  # CSRF対策のためのstate
+    auth_url = (
+        f"https://accounts.google.com/o/oauth2/v2/auth?"
+        f"response_type=code&"
+        f"client_id={CLIENT_ID}&"
+        f"redirect_uri={urllib.parse.quote(REDIRECT_URI)}&"
+        f"scope={urllib.parse.quote(SCOPE)}&"
+        f"state={state}"
+    )
+    return jsonify({"auth_url": auth_url})
 
 # @main.route('/submit-tasks', methods=['POST'])
 # def submit_tasks():
