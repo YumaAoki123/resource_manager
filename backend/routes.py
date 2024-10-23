@@ -32,10 +32,6 @@ import urllib.parse
 # クライアントIDとクライアントシークレットを環境変数から取得する
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # HTTPSを強制しないようにする（ローカル開発用）
 
-# 環境変数からクライアントIDとリダイレクトURIを取得
-CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
-REDIRECT_URI = os.getenv("REDIRECT_URIS")
-SCOPE = "openid email profile"
 
 # 認可のためのスコープ
 scope = ["https://www.googleapis.com/auth/calendar"]
@@ -586,20 +582,60 @@ def registar_email(user_id):
     finally:
         db.close()
 
-    
-@main.route('/auth_url', methods=['POST'])
-def get_auth_url():
-    state = "some_unique_state"  # CSRF対策のためのstate
-    auth_url = (
-        f"https://accounts.google.com/o/oauth2/v2/auth?"
-        f"response_type=code&"
-        f"client_id={CLIENT_ID}&"
-        f"redirect_uri={urllib.parse.quote(REDIRECT_URI)}&"
-        f"scope={urllib.parse.quote(SCOPE)}&"
-        f"state={state}"
-    )
-    return jsonify({"auth_url": auth_url})
+# OIDCの設定
+CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+REDIRECT_URI = 'http://127.0.0.1:5000/callback'  # ローカルで動作させる
+AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth'
+TOKEN_URL = 'https://oauth2.googleapis.com/token'
+import requests
 
+# サインアップボタンが押されたときの処理
+@main.route('/authorization_test')
+def authorization_test():
+    # OIDC認証URLにリダイレクト
+    auth_params = {
+        'client_id': CLIENT_ID,
+        'redirect_uri': REDIRECT_URI,
+        'response_type': 'code',
+        'scope': 'openid email profile',
+        'state': 'random_state_string'
+    }
+    auth_url = AUTH_URL + '?' + '&'.join([f'{k}={v}' for k, v in auth_params.items()])
+    return redirect(auth_url)
+
+# 認証後に呼ばれるコールバック
+@main.route('/callback')
+def callback():
+    code = request.args.get('code')
+    state = request.args.get('state')
+    
+    # トークンを取得するためのリクエスト
+    token_data = {
+        'code': code,
+        'client_id': CLIENT_ID,
+        'client_secret': CLIENT_SECRET,
+        'redirect_uri': REDIRECT_URI,
+        'grant_type': 'authorization_code'
+    }
+    token_response = requests.post(TOKEN_URL, data=token_data)
+    token_json = token_response.json()
+    
+    # IDトークンを取得
+    id_token = token_json.get('id_token')
+    session['id_token'] = id_token  # セッションに保存
+
+    return redirect('/get_id_token')  # 新しいエンドポイントへリダイレクト
+
+@main.route('/get_id_token')
+def get_id_token():
+    # セッションからIDトークンを取得
+    id_token = session.get('id_token')
+    if id_token:
+        return jsonify({'id_token': id_token})  # IDトークンをクライアントに返す
+    else:
+        return 'IDトークンが見つかりません', 404
+    
 # @main.route('/submit-tasks', methods=['POST'])
 # def submit_tasks():
 #     data = request.get_json()

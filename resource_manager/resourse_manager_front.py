@@ -2102,22 +2102,30 @@ def open_main_app():
 
 
     def on_signup_button_click():
-        # サインアップのためのリクエストをバックエンドに送信
-        response = requests.post('http://127.0.0.1:5000/auth_url')
+
+        # サインアップURL（Flaskサーバー側で作成したURL）
+        signup_url = 'http://127.0.0.1:5000/authorization_test'
+        
+        # ブラウザを開いてOIDC認証を実行
+        webbrowser.open(signup_url)
+        # 一定時間待つ（認証が完了するのを待つ）
+        time.sleep(15)  # ここは適宜調整が必要です
+    # IDトークンを取得するためのリクエスト
+        id_token_url = 'http://127.0.0.1:5000/get_id_token'  # 新しいエンドポイント
+
+        response = requests.get(id_token_url)
         
         if response.status_code == 200:
-            auth_url = response.json().get('auth_url')
-            # ブラウザを開いて認証を行う
-            webbrowser.open(auth_url)
-            
-            # 認証後、リダイレクトされるリダイレクトURIを監視
-            # ここでリダイレクトを処理し、IDトークンを取得する必要があります。
-            # 具体的には、別のエンドポイントを用意し、リダイレクトURIで取得した認可コードを処理する必要があります。
-            
-            # IDトークンを保存する処理を追加
-            # 例えば、トークンを取得してファイルに保存するなど
-            # with open('token.json', 'w') as f:
-            #     json.dump({'id_token': id_token}, f)
+            id_token = response.json().get('id_token')
+            if id_token:
+                # IDトークンをファイルに保存
+                with open('id_token.txt', 'w', encoding='utf-8') as f:
+                    f.write(id_token)
+                print("IDトークンが保存されました。")
+            else:
+                print("IDトークンが見つかりません。")
+        else:
+            print("IDトークンの取得に失敗しました。")
 
 
     authorization_button = ctk.CTkButton(user_information_frame, text="authorization", command=on_signup_button_click)
