@@ -621,20 +621,23 @@ def callback():
     token_response = requests.post(TOKEN_URL, data=token_data)
     token_json = token_response.json()
     
-    # IDトークンを取得
+    # IDトークンを保存または返すための処理
     id_token = token_json.get('id_token')
-    session['id_token'] = id_token  # セッションに保存
 
-    return redirect('/get_id_token')  # 新しいエンドポイントへリダイレクト
+    # クライアントが後でリクエストできるよう、セッションやデータベースに保存するか、
+    # 簡単にするなら、ここで一時的に変数に保持する
+    global saved_id_token
+    saved_id_token = id_token  # 実際はセキュリティを考慮してセッションやDBに保存すべき
 
-@main.route('/get_id_token')
-def get_id_token():
-    # セッションからIDトークンを取得
-    id_token = session.get('id_token')
-    if id_token:
-        return jsonify({'id_token': id_token})  # IDトークンをクライアントに返す
+    return "Authentication successful! You can now request the token."
+
+# クライアントがトークンをリクエストするエンドポイント
+@main.route('/get_token')
+def get_token():
+    if saved_id_token:
+        return jsonify({"id_token": saved_id_token})
     else:
-        return 'IDトークンが見つかりません', 404
+        return jsonify({"error": "No token found"}), 404
     
 # @main.route('/submit-tasks', methods=['POST'])
 # def submit_tasks():

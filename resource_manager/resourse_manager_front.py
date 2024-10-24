@@ -2111,7 +2111,7 @@ def open_main_app():
         # 一定時間待つ（認証が完了するのを待つ）
         time.sleep(15)  # ここは適宜調整が必要です
     # IDトークンを取得するためのリクエスト
-        id_token_url = 'http://127.0.0.1:5000/get_id_token'  # 新しいエンドポイント
+        id_token_url = 'http://127.0.0.1:5000/get_token'  # 新しいエンドポイント
 
         response = requests.get(id_token_url)
         
